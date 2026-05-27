@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-// We validate the exact shape of the incoming request
 export const registerSchema = z.object({
   body: z.object({
     email: z.string().email("Invalid email address"),
@@ -15,6 +14,21 @@ export const loginSchema = z.object({
   }),
 });
 
-// We can automatically infer TypeScript types from the Zod schemas!
 export type RegisterInput = z.infer<typeof registerSchema>["body"];
 export type LoginInput = z.infer<typeof loginSchema>["body"];
+
+export const forgotPasswordSchema = z.object({
+  body: z.object({
+    email: z.string().email(),
+  }),
+});
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>["body"];
+
+export const resetPasswordSchema = z.object({
+  body: z.object({
+    email: z.string().email(),
+    password: z.string().min(8, "Password must be at least 8 characters"),
+    otp: z.string().length(6, "OTP must be exactly 6 characters"),
+  }),
+});
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>["body"];

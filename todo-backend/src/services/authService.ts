@@ -1,9 +1,17 @@
 import { prisma } from "../lib/prisma.js";
-import { hashPassword, verifyPassword, generateTokens, verifyRefreshToken } from "../utils/auth.js";
-import type { LoginInput, RegisterInput } from "../schemas/auth.schema.js";
+import {
+  hashPassword,
+  verifyPassword,
+  generateTokens,
+  verifyRefreshToken,
+} from "../utils/auth.js";
+import type {
+  LoginInput,
+  RegisterInput,
+  ResetPasswordInput,
+} from "../schemas/auth.schema.js";
 
 export const createUserService = async (data: RegisterInput) => {
-  // 1. Check if user already exists
   const existingUser = await prisma.user.findUnique({
     where: { email: data.email },
   });
@@ -12,10 +20,8 @@ export const createUserService = async (data: RegisterInput) => {
     throw new Error("User with this email already exists");
   }
 
-  // 2. Hash the password
   const hashedPassword = await hashPassword(data.password);
 
-  // 3. Create the user in the database
   const newUser = await prisma.user.create({
     data: {
       email: data.email,
@@ -41,8 +47,11 @@ export const loginUserService = async (data: LoginInput) => {
     throw new Error("Invalid email or password");
   }
 
-  const isPasswordValid = await verifyPassword(data.password, existingUser.password);
-  
+  const isPasswordValid = await verifyPassword(
+    data.password,
+    existingUser.password,
+  );
+
   if (!isPasswordValid) {
     throw new Error("Invalid email or password");
   }
@@ -52,7 +61,7 @@ export const loginUserService = async (data: LoginInput) => {
   return {
     user: { id: existingUser.id, email: existingUser.email },
     accessToken,
-    refreshToken
+    refreshToken,
   };
 };
 
@@ -76,5 +85,100 @@ export const refreshUserService = async (refreshToken: string) => {
   return {
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken,
+  };
+};
+
+export const forgotPasswordService = async (email: string) => {
+  const user = await prisma.user.findUnique({
+    where: { email },
+  });
+  if (!user) {
+    throw new Error("Email not found");
+  }
+
+  const oneMinuteAgo = new Date(Date.now() - 60 * 1000);
+
+  const recentToken = await prisma.verificationToken.findFirst({
+    where: {
+      userId: user.id,
+      purpose: "FORGOT_PASSWORD",
+      expiresAt: {
+        gt: new Date(Date.now() + 14 * 60 * 1000), // expires in > 14 minutes
+      },
+    },
+  });
+
+  if (recentToken) {
+    throw new Error("Please wait 1 minute before requesting another email");
+  }
+
+  await prisma.verificationToken.deleteMany({
+    where: {
+      userId: user.id,
+      purpose: "FORGOT_PASSWORD",
+    },
+  });
+
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+  await prisma.verificationToken.create({
+    data: {
+      token: otp,
+      expiresAt,
+      purpose: "FORGOT_PASSWORD",
+      userId: user.id,
+    },
+  });
+
+  console.log(`\n============================`);
+  console.log(`✉️ EMAIL SENT TO: ${user.email}`);
+  console.log(`🔑 OTP: ${otp}`);
+  console.log(`============================\n`);
+};
+
+export const resetPasswordService = async (data: ResetPasswordInput) => {
+  const user = await prisma.user.findUnique({
+    where: { email: data.email },
+  });
+
+  if (!user) {
+    throw new Error("Invalid email or OTP");
+  }
+
+  const verificationRecord = await prisma.verificationToken.findFirst({
+    where: {
+      userId: user.id,
+      token: data.otp,
+      purpose: "FORGOT_PASSWORD",
+    },
+  });
+
+  if (!verificationRecord) {
+    throw new Error("Invalid or expired OTP");
+  }
+
+  if (verificationRecord.expiresAt < new Date()) {
+    throw new Error("OTP has expired. Please request a new one.");
+  }
+
+  const hashedPassword = await hashPassword(data.password);
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { password: hashedPassword },
+  });
+
+  await prisma.verificationToken.delete({
+    where: { id: verificationRecord.id },
+  });
+
+  const { accessToken, refreshToken } = generateTokens(user.id);
+
+  return {
+    user: { id: user.id, email: user.email },
+    accessToken,
+    refreshToken,
   };
 };
