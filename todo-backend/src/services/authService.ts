@@ -1,5 +1,5 @@
 import { prisma } from "../lib/prisma.js";
-import { hashPassword } from "../utils/auth.js";
+import { hashPassword, verifyPassword, generateTokens, verifyRefreshToken } from "../utils/auth.js";
 import type { LoginInput, RegisterInput } from "../schemas/auth.schema.js";
 
 export const createUserService = async (data: RegisterInput) => {
@@ -38,8 +38,43 @@ export const loginUserService = async (data: LoginInput) => {
   });
 
   if (!existingUser) {
-    throw new Error("Login Failed");
+    throw new Error("Invalid email or password");
   }
 
+  const isPasswordValid = await verifyPassword(data.password, existingUser.password);
   
+  if (!isPasswordValid) {
+    throw new Error("Invalid email or password");
+  }
+
+  const { accessToken, refreshToken } = generateTokens(existingUser.id);
+
+  return {
+    user: { id: existingUser.id, email: existingUser.email },
+    accessToken,
+    refreshToken
+  };
+};
+
+export const refreshUserService = async (refreshToken: string) => {
+  const payload = verifyRefreshToken(refreshToken);
+
+  if (!payload) {
+    throw new Error("Invalid or expired refresh token");
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: payload.userId },
+  });
+
+  if (!user) {
+    throw new Error("User not found");
+  }
+
+  const tokens = generateTokens(user.id);
+
+  return {
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+  };
 };

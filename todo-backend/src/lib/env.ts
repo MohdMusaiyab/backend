@@ -8,6 +8,8 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url({ message: "DATABASE_URL must be a valid URL" }),
   PORT: z.string().default("3000"),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+  JWT_ACCESS_SECRET: z.string().min(1, "JWT_ACCESS_SECRET is required"),
+  JWT_REFRESH_SECRET: z.string().min(1, "JWT_REFRESH_SECRET is required"),
 });
 
 // Validate the environment variables
