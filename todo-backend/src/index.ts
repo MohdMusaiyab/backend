@@ -4,6 +4,7 @@ import authRoutes from "./routes/authRoutes.js";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import userRoutes from "./routes/userRoutes.js";
+import todoRoutes from "./routes/todoRoutes.js";
 
 const app = express();
 
@@ -14,6 +15,7 @@ app.use(cookieParser());
 
 app.use("/auth", authRoutes);
 app.use("/users", userRoutes);
+app.use("/todos", todoRoutes);
 
 app.listen(env.PORT, () => {
   console.log(`Server is running on port ${env.PORT}`);
