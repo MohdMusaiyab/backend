@@ -24,5 +24,17 @@ export const getTodoSchema = z.object({
   }),
 });
 
+export const getAllTodosQuerySchema = z.object({
+  query: z.object({
+    page: z.coerce.number().min(1).optional().default(1),
+    limit: z.coerce.number().min(1).max(100).optional().default(10),
+    search: z.string().optional(),
+    isCompleted: z.enum(["true", "false"]).optional().transform((val) => 
+      val === "true" ? true : val === "false" ? false : undefined
+    ),
+  }),
+});
+
 export type CreateTodoInput = z.infer<typeof createTodoSchema>["body"];
 export type UpdateTodoInput = z.infer<typeof updateTodoSchema>["body"];
+export type GetAllTodosQueryInput = z.infer<typeof getAllTodosQuerySchema>["query"];

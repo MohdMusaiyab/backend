@@ -4,6 +4,7 @@ import {
   updateTodoController,
   getAllTodosController,
   getTodoByIdController,
+  deleteTodoController,
 } from "../controllers/todoController.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 
@@ -15,5 +16,6 @@ todoRoutes.get("/", getAllTodosController);
 todoRoutes.get("/:id", getTodoByIdController);
 todoRoutes.post("/create", createTodoController);
 todoRoutes.patch("/:id", updateTodoController);
+todoRoutes.delete("/:id", deleteTodoController);
 
 export default todoRoutes;
