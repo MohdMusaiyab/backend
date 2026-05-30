@@ -1,7 +1,13 @@
-import type { CreateTodoInput, UpdateTodoInput } from "../schemas/todo.schema.js";
+import type {
+  CreateTodoInput,
+  UpdateTodoInput,
+} from "../schemas/todo.schema.js";
 import { prisma } from "../lib/prisma.js";
 
-export const createToDoService = async (data: CreateTodoInput, userId: string) => {
+export const createToDoService = async (
+  data: CreateTodoInput,
+  userId: string,
+) => {
   return await prisma.todo.create({
     data: {
       title: data.title,
@@ -14,7 +20,7 @@ export const createToDoService = async (data: CreateTodoInput, userId: string) =
 export const updateToDoService = async (
   todoId: string,
   data: UpdateTodoInput,
-  userId: string
+  userId: string,
 ) => {
   const todo = await prisma.todo.findUnique({
     where: { id: todoId },
@@ -42,7 +48,7 @@ export const updateToDoService = async (
 export const getAllTodosService = async (userId: string) => {
   return await prisma.todo.findMany({
     where: { userId },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { createdAt: "desc" },
   });
 };
 
