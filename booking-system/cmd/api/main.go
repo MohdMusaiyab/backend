@@ -29,6 +29,11 @@ func main() {
 	r.GET("/theaters", handlers.GetTheaters)
 	r.GET("/theaters/:id", handlers.GetTheaterByID)
 
+	// --- Hall Endpoints ---
+	r.POST("/halls", handlers.CreateHall)
+	r.GET("/halls", handlers.GetHalls)
+	r.GET("/halls/:id", handlers.GetHallByID)
+
 	// 4. Start the server
 	fmt.Println("🚀 Server is running on port 8080...")
 	if err := r.Run(":8080"); err != nil {
