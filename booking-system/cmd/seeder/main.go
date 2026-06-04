@@ -11,13 +11,12 @@ import (
 func main() {
 	fmt.Println("Running Database Seeder...")
 
-	// 1. Connect to our Postgres Database
 	database.ConnectDB()
 
 	// 2. Control Panel: Comment or Uncomment the functions you want to run!
-	// seedTheaters()  <-- I commented this out so you don't create another 25 theaters by accident!
-	seedHalls()
-	// seedMovies()
+	// seedTheaters()
+	// seedHalls()
+	seedMovies() // <-- Uncommented to run the movies seeder!
 	
 	fmt.Println("🎉 Seeding completely finished!")
 }
@@ -53,7 +52,6 @@ func seedHalls() {
 	
 	var theaters []models.Theater
 	
-	// 1. Fetch all theaters currently in the DB
 	if err := database.DB.Find(&theaters).Error; err != nil {
 		fmt.Printf("❌ Failed to fetch theaters: %v\n", err)
 		return
@@ -66,12 +64,8 @@ func seedHalls() {
 
 	totalHallsCreated := 0
 
-	// 2. Loop through every single theater
 	for _, theater := range theaters {
-		
-		// 3. Create exactly 5 Halls for the current theater
 		for i := 1; i <= 5; i++ {
-			// Randomize seat capacity between 50 and 150 seats per hall
 			seatCapacity := rand.Intn(101) + 50 
 
 			hall := models.Hall{
@@ -89,4 +83,36 @@ func seedHalls() {
 	}
 
 	fmt.Printf("✅ Successfully seeded %d Halls!\n", totalHallsCreated)
+}
+
+func seedMovies() {
+	fmt.Println("Seeding 25 Random Movies...")
+
+	baseTitles := []string{"Inception", "The Dark Knight", "Interstellar", "Dune", "Avatar", "Oppenheimer", "The Matrix", "Gladiator", "Titanic"}
+	adjectives := []string{"Returns", "Part II", "The Awakening", "Origins", "Uncut", "Remastered"}
+
+	moviesCreated := 0
+
+	for i := 1; i <= 25; i++ {
+		// Create a dynamic movie title like "Inception: Returns (421)"
+		title := fmt.Sprintf("%s: %s (%d)", baseTitles[rand.Intn(len(baseTitles))], adjectives[rand.Intn(len(adjectives))], rand.Intn(999))
+		
+		// Random duration between 90 and 180 minutes
+		duration := rand.Intn(91) + 90 
+
+		movie := models.Movie{
+			Title:       title,
+			Description: fmt.Sprintf("An amazing cinematic experience about %s.", title),
+			DurationMin: duration,
+		}
+
+		if err := database.DB.Create(&movie).Error; err != nil {
+			fmt.Printf("❌ Failed to create movie: %v\n", err)
+		} else {
+			moviesCreated++
+			fmt.Printf("✅ Created: %s (%d mins)\n", movie.Title, movie.DurationMin)
+		}
+	}
+
+	fmt.Printf("✅ Successfully seeded %d Movies!\n", moviesCreated)
 }
