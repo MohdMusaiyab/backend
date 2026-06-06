@@ -12,21 +12,15 @@ import (
 func main() {
 	fmt.Println("Running Database Seeder...")
 
-	// 1. Connect to our Postgres Database
 	database.ConnectDB()
 
-	// 2. Control Panel: Comment or Uncomment the functions you want to run!
 	// seedTheaters()  
 	// seedHalls()
 	// seedMovies() 
-	seedShowtimes() // <-- Uncommented to run the Showtime & Seat generation!
+	seedShowtimes()
 	
 	fmt.Println("🎉 Seeding completely finished!")
 }
-
-// -----------------------------------------------------
-// SEEDER FUNCTIONS
-// -----------------------------------------------------
 
 func seedTheaters() {
 	fmt.Println("Seeding 25 Random Theaters...")
@@ -123,7 +117,6 @@ func seedShowtimes() {
 	var movies []models.Movie
 	var halls []models.Hall
 	
-	// Fetch all existing movies and halls
 	database.DB.Find(&movies)
 	database.DB.Find(&halls)
 
@@ -135,13 +128,9 @@ func seedShowtimes() {
 	showtimesCreated := 0
 	seatsCreated := 0
 
-	// We will create exactly 2 showtimes for EVERY hall in the database
 	for _, hall := range halls {
 		for i := 0; i < 2; i++ {
-			// Pick a random movie
 			randomMovie := movies[rand.Intn(len(movies))]
-			
-			// Give it a random start time (anywhere from right now to 7 days in the future)
 			futureHours := rand.Intn(24 * 7)
 			startTime := time.Now().Add(time.Duration(futureHours) * time.Hour)
 
@@ -151,14 +140,12 @@ func seedShowtimes() {
 				StartTime: startTime,
 			}
 
-			// 1. Insert the Showtime
 			if err := database.DB.Create(&showtime).Error; err != nil {
 				fmt.Printf("❌ Failed to create showtime: %v\n", err)
 				continue
 			}
 			showtimesCreated++
 
-			// 2. Instantly generate all the individual physical seats for this specific showtime!
 			var seats []models.ShowtimeSeat
 			for s := 1; s <= hall.TotalSeats; s++ {
 				seats = append(seats, models.ShowtimeSeat{
@@ -168,7 +155,6 @@ func seedShowtimes() {
 				})
 			}
 
-			// 3. Bulk insert the seats (this is extremely fast in Postgres)
 			if err := database.DB.Create(&seats).Error; err != nil {
 				fmt.Printf("❌ Failed to generate seats: %v\n", err)
 			} else {

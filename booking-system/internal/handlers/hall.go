@@ -37,7 +37,6 @@ func GetHalls(c *gin.Context) {
 	}
 
 	offset := (page - 1) * limit
-
 	var halls []models.Hall
 
 	if err := database.DB.Limit(limit).Offset(offset).Find(&halls).Error; err != nil {
@@ -54,7 +53,6 @@ func GetHalls(c *gin.Context) {
 
 func GetHallByID(c *gin.Context) {
 	id := c.Param("id")
-
 	var hall models.Hall
 
 	if err := database.DB.First(&hall, id).Error; err != nil {

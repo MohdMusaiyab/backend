@@ -18,17 +18,14 @@ func CreateShowtime(c *gin.Context) {
 		return
 	}
 
-	// 1. Begin a Database Transaction
 	tx := database.DB.Begin()
 
-	// 2. Create the Showtime
 	if err := tx.Create(&showtime).Error; err != nil {
-		tx.Rollback() // Undo everything if this fails
+		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create showtime"})
 		return
 	}
 
-	// 3. Fetch the Hall to determine Total Seats
 	var hall models.Hall
 	if err := tx.First(&hall, showtime.HallID).Error; err != nil {
 		tx.Rollback()
@@ -36,24 +33,21 @@ func CreateShowtime(c *gin.Context) {
 		return
 	}
 
-	// 4. Generate the physical seats (e.g., S-1, S-2, S-3...)
 	var seats []models.ShowtimeSeat
 	for i := 1; i <= hall.TotalSeats; i++ {
 		seats = append(seats, models.ShowtimeSeat{
 			ShowtimeID: showtime.ID,
 			SeatNumber: fmt.Sprintf("S-%d", i),
-			Status:     "AVAILABLE", // All seats start as available!
+			Status:     "AVAILABLE",
 		})
 	}
 
-	// 5. Bulk Insert the seats (Much faster than inserting one by one)
 	if err := tx.Create(&seats).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate seats for showtime"})
 		return
 	}
 
-	// 6. Commit the transaction (Save permanently)
 	tx.Commit()
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -91,7 +85,6 @@ func GetShowtimes(c *gin.Context) {
 
 func GetShowtimeByID(c *gin.Context) {
 	id := c.Param("id")
-
 	var showtime models.Showtime
 
 	if err := database.DB.First(&showtime, id).Error; err != nil {
@@ -102,10 +95,8 @@ func GetShowtimeByID(c *gin.Context) {
 	c.JSON(http.StatusOK, showtime)
 }
 
-// GetShowtimeSeats returns all the seats and their current status for a specific showtime.
 func GetShowtimeSeats(c *gin.Context) {
 	id := c.Param("id")
-	
 	var seats []models.ShowtimeSeat
 
 	if err := database.DB.Where("showtime_id = ?", id).Find(&seats).Error; err != nil {
