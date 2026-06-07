@@ -1,17 +1,13 @@
 # Backend Practice
-
 A space for brushing up backend fundamentals — building things from scratch, writing my own code, and keeping AI assistance to a minimum.
-
 > *No over-reliance. Just intentional practice.*
-
 ## 📁 Projects
-
 | Project | Description | Directory |
 | :--- | :--- | :--- |
 | Todo Backend | A simple todo API to practice CRUD, routes, and data handling. | [`todo-backend`](https://github.com/MohdMusaiyab/backend/tree/main/todo-backend) |
+| Booking System | A concurrent booking API written in Go to simulate real-world booking scenarios — seats, slots, or resources — with race condition handling and goroutine-based concurrency. | [`booking-system`](https://github.com/MohdMusaiyab/backend/tree/main/booking-system) |
 
 **Repo root:** [github.com/MohdMusaiyab/backend](https://github.com/MohdMusaiyab/backend)
-
 ## 🧠 Approach
 
 - Write first, then debug.
