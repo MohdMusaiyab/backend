@@ -29,11 +29,10 @@ func BookSeat(c *gin.Context) {
 
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&seat, req.ShowtimeSeatID).Error; err != nil {
 		tx.Rollback()
-		// We were blindly assuming ANY error meant "Seat Not Found". Let's fix that:
+
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Seat not found"})
 		} else {
-			// This will catch Connection Pool timeouts, database lock failures, etc!
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error while acquiring lock", "details": err.Error()})
 		}
 		return

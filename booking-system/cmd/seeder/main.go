@@ -14,9 +14,9 @@ func main() {
 
 	database.ConnectDB()
 
-	// seedTheaters()  
-	// seedHalls()
-	// seedMovies() 
+	seedTheaters()  
+	seedHalls()
+	seedMovies() 
 	seedShowtimes()
 	
 	fmt.Println("🎉 Seeding completely finished!")
