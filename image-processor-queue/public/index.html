@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Async Image Processor</title>
+  <link rel="stylesheet" href="/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Image Processor Queue</h1>
+      <p>Powered by BullMQ & Node.js</p>
+    </header>
+
+    <main>
+      <div class="drop-zone" id="drop-zone">
+        <span class="drop-zone__prompt">Drag & Drop your image here or Click to upload</span>
+        <input type="file" name="image" id="file-input" accept="image/*">
+      </div>
+
+      <div class="status-panel hidden" id="status-panel">
+        <h3>Job Status</h3>
+        <div class="progress-bar">
+          <div class="progress-bar__fill" id="progress-fill"></div>
+        </div>
+        <p id="status-text" class="status-text">Pending...</p>
+      </div>
+
+      <div class="results hidden" id="results">
+        <div class="result-card">
+          <h4>Original</h4>
+          <img id="original-preview" src="" alt="Original Image">
+        </div>
+        <div class="result-card">
+          <h4>Processed</h4>
+          <img id="processed-preview" src="" alt="Processed Image">
+        </div>
+      </div>
+    </main>
+  </div>
+  <script src="/main.js"></script>
+</body>
+</html>
