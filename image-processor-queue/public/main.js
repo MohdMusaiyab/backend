@@ -7,7 +7,6 @@ const results = document.getElementById('results');
 const originalPreview = document.getElementById('original-preview');
 const processedPreview = document.getElementById('processed-preview');
 
-// Event Listeners for Drag & Drop
 dropZone.addEventListener('click', () => fileInput.click());
 
 ['dragover', 'dragleave', 'drop'].forEach(eventName => {
@@ -45,7 +44,6 @@ function handleFiles(files) {
     return;
   }
 
-  // Show local preview immediately without waiting for server
   const reader = new FileReader();
   reader.readAsDataURL(file);
   reader.onloadend = () => {
@@ -56,7 +54,6 @@ function handleFiles(files) {
 }
 
 async function uploadFile(file) {
-  // Reset UI for processing
   dropZone.classList.add('hidden');
   results.classList.add('hidden');
   statusPanel.classList.remove('hidden');
@@ -76,7 +73,6 @@ async function uploadFile(file) {
     const data = await response.json();
     const jobId = data.jobId;
     
-    // Start Polling the server for updates
     pollStatus(jobId);
 
   } catch (error) {
@@ -101,11 +97,10 @@ async function pollStatus(jobId) {
       showResult(data.imageUrl);
     } else if (data.status === 'failed') {
       updateProgress(100, 'Worker Failed to process image', false);
-      progressFill.style.background = '#ef4444'; // Red for failure
+      progressFill.style.background = '#ef4444';
     }
   } catch (error) {
     console.error('Polling error:', error);
-    // If polling fails (e.g., server restart), try again shortly
     setTimeout(() => pollStatus(jobId), 2000);
   }
 }
@@ -121,7 +116,6 @@ function updateProgress(percent, text, isPulsing) {
 }
 
 function showResult(imageUrl) {
-  // We append a timestamp to bypass browser caching of the new image
   processedPreview.src = `${imageUrl}?t=${new Date().getTime()}`;
   results.classList.remove('hidden');
 }

@@ -1,8 +1,8 @@
 :root {
-  --bg-page: #f3f4f6; /* Very light cool gray */
+  --bg-page: #f3f4f6;
   --bg-card: #ffffff;
-  --text-main: #111827; /* Almost black */
-  --text-muted: #6b7280; /* Soft gray */
+  --text-main: #111827;
+  --text-muted: #6b7280;
   --border-light: #e5e7eb;
   --border-dark: #374151;
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
@@ -23,7 +23,6 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
-  /* Add a very subtle dotted texture to the background for a premium SaaS feel */
   background-image: radial-gradient(#d1d5db 1px, transparent 1px);
   background-size: 24px 24px;
 }

@@ -18,7 +18,7 @@ connection.on("error", (err) => {
 connection.on("connect", () => {
   console.log("✅ Connected to Redis successfully");
 });
-// --- BULLMQ QUEUE SETUP ---
+
 export const imageQueue = new Queue("image-jobs", {
   connection: connection as any,
 });
