@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/hibiken/asynq"
 	"github.com/mohdMusaiyab/notification-system/internal/model"
-	"github.com/mohdMusaiyab/notification-system/internal/provider"
 	"github.com/mohdMusaiyab/notification-system/internal/repository"
+	"github.com/mohdMusaiyab/notification-system/internal/worker"
 )
 
 // NotificationService defines the use-cases for our application
@@ -13,47 +15,51 @@ type NotificationService interface {
 	ProcessNotification(ctx context.Context, recipient, message string) error
 }
 
-// notificationService struct holds our external dependencies
+// notificationService struct holds our dependencies.
+// Notice we replaced the slow 'sender' with the blazing fast 'queueClient'.
 type notificationService struct {
-	repo   repository.NotificationRepository
-	sender provider.NotificationSender
+	repo        repository.NotificationRepository
+	queueClient *asynq.Client
 }
 
-// NewNotificationService is the constructor where we "Inject" the dependencies
-func NewNotificationService(repo repository.NotificationRepository, sender provider.NotificationSender) NotificationService {
+// NewNotificationService injects the repository and the Redis queue client
+func NewNotificationService(repo repository.NotificationRepository, queueClient *asynq.Client) NotificationService {
 	return &notificationService{
-		repo:   repo,
-		sender: sender,
+		repo:        repo,
+		queueClient: queueClient,
 	}
 }
 
-// ProcessNotification is our Core Business Logic. It orchestrates the flow.
+// ProcessNotification is now a "Producer". It saves state and offloads the heavy work.
 func (s *notificationService) ProcessNotification(ctx context.Context, recipient, message string) error {
-	// Default status
-	status := "sent"
-
-	// 1. Ask the Provider to send the message
-	err := s.sender.Send(ctx, recipient, message)
-	if err != nil {
-		// If Twilio/Mock failed, we update our status
-		status = "failed"
-	}
-
-	// 2. Build our Database Model
+	// 1. Instantly save to DB with "pending" status.
+	// The background worker will update this to "sent" or "failed" later.
 	notif := &model.Notification{
 		Recipient: recipient,
 		Message:   message,
-		Status:    status,
+		Status:    "pending",
 	}
 
-	// 3. Ask the Repository to save it to Postgres
-	saveErr := s.repo.Save(ctx, notif)
-	if saveErr != nil {
-		// If the database is down, we return a critical error
-		return saveErr
+	if err := s.repo.Save(ctx, notif); err != nil {
+		return fmt.Errorf("could not save pending notification: %w", err)
 	}
 
-	// Return the original sender error (if it failed to send but saved successfully)
-	// Or return nil if everything was perfect.
-	return err
+	// 2. Package the JSON payload using our helper from Step 2
+	task, err := worker.NewSendNotificationTask(recipient, message)
+	if err != nil {
+		return fmt.Errorf("could not create task: %w", err)
+	}
+
+	// 3. Push the task to the Redis Queue!
+	// We configure it to automatically retry 5 times if the external provider fails.
+	info, err := s.queueClient.EnqueueContext(ctx, task, asynq.MaxRetry(5))
+	if err != nil {
+		return fmt.Errorf("could not enqueue task: %w", err)
+	}
+
+	// Log it for our own visibility
+	fmt.Printf("[PRODUCER] Enqueued task: id=%s type=%s queue=%s\n", info.ID, info.Type, info.Queue)
+	
+	// 4. Return instantly! No waiting 500ms for Twilio/Mock to respond.
+	return nil
 }
