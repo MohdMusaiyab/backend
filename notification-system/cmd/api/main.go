@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -76,7 +77,19 @@ func main() {
 		// Initialize the Asynq Server with a concurrency of 10 workers
 		workerServer := asynq.NewServer(
 			redisConnOpt,
-			asynq.Config{Concurrency: 10},
+			asynq.Config{
+				Concurrency: 10,
+				// We configure strict queue priorities. "critical" is processed 6x as often as "low".
+				Queues: map[string]int{
+					"critical": 6,
+					"default":  3,
+					"low":      1,
+				},
+				// ErrorHandler triggers every time a task fails, BEFORE it retries.
+				ErrorHandler: asynq.ErrorHandlerFunc(func(ctx context.Context, task *asynq.Task, err error) {
+					log.Printf("[WORKER RETRY ⚠️] Task %s failed and will trigger Exponential Backoff. Reason: %v", task.Type(), err)
+				}),
+			},
 		)
 
 		// Create a router for our tasks (just like Gin for HTTP)

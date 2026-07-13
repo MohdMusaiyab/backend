@@ -43,5 +43,18 @@ While this is a massive operational upgrade, the current architecture still has 
 
 ---
 
-## Next Steps (Stage 3)
-*Coming soon...*
+## Stage 3: System Resilience & DLQ (Completed)
+
+### What We Built
+In distributed systems, external APIs (like Twilio or AWS SES) will inevitably go down. In Stage 3, we hardened the system against these catastrophic failures:
+
+1. **Exponential Backoff + Jitter:** If the external provider fails, our Go worker does not immediately spam them again (which would cause a "Thundering Herd" server crash). It intelligently calculates an exponential delay with a random time-jitter before retrying.
+2. **Strict Queue Prioritization:** We created multiple queue levels. A "critical" password reset email will automatically be processed 6x faster than a "low" priority weekly newsletter.
+3. **Dead Letter Queue (DLQ):** If a notification fails 3 times consecutively, it is stripped from the active queue and permanently parked in the DLQ (Archived Queue) to prevent infinite loops.
+4. **Visual Monitoring:** We deployed the `hibiken/asynqmon` Docker container, providing a live Web UI to visually monitor queue throughput, track retries, and manually replay DLQ tasks.
+
+---
+
+## Next Steps (Stage 4)
+- **Microservice Decoupling:** Splitting the API Producer and the Background Consumer into completely separate deployable Docker binaries to remove the Single Point of Failure.
+- **Real-Time Client Feedback (WebSockets):** Notifying the frontend UI instantly when the background worker successfully completes the delayed job.

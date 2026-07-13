@@ -39,7 +39,6 @@ func (h *NotificationHandler) HandleSendNotification(c *gin.Context) {
 	}
 
 	// 2. Pass the validated data down to our Core Service (The Brain)
-	// Notice we don't pass the Gin Context down, just a standard standard context. 
 	// This keeps the service layer completely unaware of the HTTP framework!
 	err := h.service.ProcessNotification(c.Request.Context(), req.Recipient, req.Message)
 	if err != nil {

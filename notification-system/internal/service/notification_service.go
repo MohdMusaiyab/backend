@@ -51,8 +51,9 @@ func (s *notificationService) ProcessNotification(ctx context.Context, recipient
 	}
 
 	// 3. Push the task to the Redis Queue!
-	// We configure it to automatically retry 5 times if the external provider fails.
-	info, err := s.queueClient.EnqueueContext(ctx, task, asynq.MaxRetry(5))
+	// We explicitly set MaxRetry to 3. If it fails 3 times, it gets moved to the DLQ (Archived).
+	// We also assign it to the "critical" queue so the worker prioritizes it over normal jobs.
+	info, err := s.queueClient.EnqueueContext(ctx, task, asynq.MaxRetry(3), asynq.Queue("critical"))
 	if err != nil {
 		return fmt.Errorf("could not enqueue task: %w", err)
 	}
