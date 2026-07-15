@@ -2,36 +2,32 @@ package worker
 
 import (
 	"encoding/json"
+
 	"github.com/hibiken/asynq"
 )
 
-// A list of all task types our system supports.
-// Using a constant prevents typos when pushing (Producer) or pulling (Consumer) from the queue.
 const (
 	TypeSendNotification = "notification:send"
 )
 
-// SendNotificationPayload is the actual data we serialize into JSON and push into Redis.
-// Notice it doesn't have GORM or Gin tags, because it only cares about the Queue.
+// SendNotificationPayload defines the data stored in the Redis queue
 type SendNotificationPayload struct {
-	Recipient string `json:"recipient"`
-	Message   string `json:"message"`
+	// We added the Database ID so the worker can query the database for idempotency!
+	NotificationID string 
+	Recipient      string
+	Message        string
 }
 
-// NewSendNotificationTask is a helper function to create the asynq.Task.
-// We keep this here so the Service layer doesn't have to worry about JSON serialization.
-func NewSendNotificationTask(recipient, message string) (*asynq.Task, error) {
-	payload := SendNotificationPayload{
-		Recipient: recipient,
-		Message:   message,
-	}
-
-	// Serialize the struct into a JSON byte array
-	payloadBytes, err := json.Marshal(payload)
+// NewSendNotificationTask packages the data for the background worker
+func NewSendNotificationTask(notificationID, recipient, message string) (*asynq.Task, error) {
+	payload, err := json.Marshal(SendNotificationPayload{
+		NotificationID: notificationID,
+		Recipient:      recipient,
+		Message:        message,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	// Create and return the asynq task with our predefined Type and serialized Payload
-	return asynq.NewTask(TypeSendNotification, payloadBytes), nil
+	return asynq.NewTask(TypeSendNotification, payload), nil
 }

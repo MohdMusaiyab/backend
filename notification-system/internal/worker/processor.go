@@ -31,25 +31,41 @@ func (processor *NotificationProcessor) ProcessTaskSendNotification(ctx context.
 
 	// 1. Deserialize the raw JSON bytes back into our Go struct
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
-		// If the JSON is completely broken, retrying won't magically fix it.
-		// We use asynq.SkipRetry to instantly move it to the Dead Letter Queue.
 		return fmt.Errorf("json.Unmarshal failed: %v: %w", err, asynq.SkipRetry)
 	}
 
 	log.Printf("[CONSUMER] 📥 Pulled task from Redis for recipient: %s", payload.Recipient)
 
-	// 2. Do the heavy lifting (Call Twilio / AWS / Mock)
-	// This takes 500ms, but the HTTP API doesn't care anymore because this runs in the background!
-	err := processor.sender.Send(ctx, payload.Recipient, payload.Message)
+	// =========================================================================
+	// 2. IDEMPOTENCY CHECK (Type B Deduplication)
+	// =========================================================================
+	// We check the database BEFORE attempting to send the email.
+	notif, err := processor.repo.GetByID(ctx, payload.NotificationID)
 	if err != nil {
-		// If Twilio is down, we return the error.
-		// This acts as a NACK (Negative Acknowledgment). Asynq will put it back in the queue and retry later.
+		// If we can't hit the DB, we safely NACK the job so it retries later.
+		return fmt.Errorf("failed to fetch notification from DB: %w", err)
+	}
+
+	// If the system crashed after sending the email but before ACKing the job last time,
+	// the broker will redeliver it. This check catches that exact redelivery!
+	if notif.Status == "sent" {
+		log.Printf("[CONSUMER IDEMPOTENCY ✅] Job %s was already sent! Skipping external call to prevent duplicate email.", payload.NotificationID)
+		return nil // Returning nil acts as an ACK, instantly deleting the duplicate job from Redis.
+	}
+
+	// 3. Do the heavy lifting (Call Twilio / AWS / Mock)
+	err = processor.sender.Send(ctx, payload.Recipient, payload.Message)
+	if err != nil {
+		// If the external provider fails, we leave the DB status as "pending" so the next retry can attempt it.
 		return fmt.Errorf("external sender failed: %w", err)
 	}
 
-	// 3. (Optional) We could update the database record to "sent" here.
+	// 4. Mark as sent in the database!
+	// This is the physical lock that prevents future retries from double-sending.
+	if err := processor.repo.UpdateStatus(ctx, payload.NotificationID, "sent"); err != nil {
+		return fmt.Errorf("failed to update status to sent: %w", err)
+	}
 
-	// 4. Return nil acts as an ACK (Acknowledgment). 
-	// It tells Redis: "Job completely finished, you can delete it from RAM."
+	log.Printf("[CONSUMER] ✅ Successfully sent email and updated DB for %s", payload.Recipient)
 	return nil
 }

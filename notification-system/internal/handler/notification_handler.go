@@ -7,49 +7,50 @@ import (
 	"github.com/mohdMusaiyab/notification-system/internal/service"
 )
 
-// SendNotificationRequest defines the strict JSON payload we expect from the client.
-// We use Gin's built-in validator (go-playground/validator) to enforce rules.
-type SendNotificationRequest struct {
-	Recipient string `json:"recipient" binding:"required,email"` // Must exist and be a valid email format
-	Message   string `json:"message" binding:"required,min=5"`   // Must exist and be at least 5 characters
-}
-
-// NotificationHandler acts as our HTTP Transport layer
+// NotificationHandler handles incoming HTTP requests
 type NotificationHandler struct {
 	service service.NotificationService
 }
 
-// NewNotificationHandler creates a new handler injecting the core service layer
+// NewNotificationHandler creates a new handler instance
 func NewNotificationHandler(service service.NotificationService) *NotificationHandler {
-	return &NotificationHandler{
-		service: service,
-	}
+	return &NotificationHandler{service: service}
 }
 
-// HandleSendNotification is the Gin endpoint handler for POST /notification
-func (h *NotificationHandler) HandleSendNotification(c *gin.Context) {
-	var req SendNotificationRequest
+// SendNotificationRequest defines the expected JSON payload
+type SendNotificationRequest struct {
+	Recipient string `json:"recipient" binding:"required,email"`
+	Message   string `json:"message" binding:"required"`
+}
 
-	// 1. Validate the incoming JSON
-	// ShouldBindJSON will check if the JSON matches our struct AND run our validation rules (like checking if it's a real email).
-	if err := c.ShouldBindJSON(&req); err != nil {
-		// If validation fails, immediately return a 400 Bad Request to the client
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload: " + err.Error()})
+// HandleSendNotification is the Gin controller for POST /notification
+func (h *NotificationHandler) HandleSendNotification(c *gin.Context) {
+	// 1. Enforce Idempotency at the front door!
+	idempotencyKey := c.GetHeader("Idempotency-Key")
+	if idempotencyKey == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Idempotency-Key header is strictly required to prevent duplicates"})
 		return
 	}
 
-	// 2. Pass the validated data down to our Core Service (The Brain)
-	// This keeps the service layer completely unaware of the HTTP framework!
-	err := h.service.ProcessNotification(c.Request.Context(), req.Recipient, req.Message)
+	var req SendNotificationRequest
+	// 2. Validate the incoming JSON structure
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		return
+	}
+
+	// 3. Pass the validated data AND the idempotency key down to the Brain (Service Layer)
+	err := h.service.ProcessNotification(c.Request.Context(), req.Recipient, req.Message, idempotencyKey)
 	if err != nil {
-		// If something went wrong in the DB or Provider, return a 500 error
+		// If the Brain tells us it's a duplicate, we calmly return a 200 OK without crashing or re-queueing!
+		if err == service.ErrDuplicateRequest {
+			c.JSON(http.StatusOK, gin.H{"status": "Duplicate request ignored, already processing"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process notification"})
 		return
 	}
 
-	// 3. Return a successful 201 Created response
-	c.JSON(http.StatusCreated, gin.H{
-		"status":  "success",
-		"message": "Notification dispatched to internal processing pipeline",
-	})
+	// 4. Respond instantly with a 202 Accepted
+	c.JSON(http.StatusAccepted, gin.H{"status": "Notification enqueued for delivery"})
 }

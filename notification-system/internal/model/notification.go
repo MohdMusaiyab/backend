@@ -2,14 +2,20 @@ package model
 
 import (
 	"time"
+
+	"github.com/google/uuid"
 )
 
-// Notification maps directly to our notifications SQL table
+// Notification represents a single message sent to a user
 type Notification struct {
-	ID        string    `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
-	Recipient string    `gorm:"type:varchar(255);not null" json:"recipient"`
-	Message   string    `gorm:"type:text;not null" json:"message"`
-	Status    string    `gorm:"type:varchar(50);not null" json:"status"`
-	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	ID             uuid.UUID `gorm:"type:uuid;primary_key;default:gen_random_uuid()"`
+	Recipient      string    `gorm:"not null"`
+	Message        string    `gorm:"not null"`
+	Status         string    `gorm:"not null;default:'pending'"`
+	
+	// IdempotencyKey prevents duplicate requests from being processed multiple times
+	IdempotencyKey string    `gorm:"unique;column:idempotency_key"`
+	
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }

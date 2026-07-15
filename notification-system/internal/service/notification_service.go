@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/hibiken/asynq"
@@ -10,19 +11,20 @@ import (
 	"github.com/mohdMusaiyab/notification-system/internal/worker"
 )
 
-// NotificationService defines the use-cases for our application
+// ErrDuplicateRequest lets the handler know the client sent the exact same request twice
+var ErrDuplicateRequest = errors.New("duplicate request detected")
+
+// NotificationService defines the core business logic interface
 type NotificationService interface {
-	ProcessNotification(ctx context.Context, recipient, message string) error
+	ProcessNotification(ctx context.Context, recipient, message, idempotencyKey string) error
 }
 
-// notificationService struct holds our dependencies.
-// Notice we replaced the slow 'sender' with the blazing fast 'queueClient'.
 type notificationService struct {
 	repo        repository.NotificationRepository
 	queueClient *asynq.Client
 }
 
-// NewNotificationService injects the repository and the Redis queue client
+// NewNotificationService creates a new instance of the service
 func NewNotificationService(repo repository.NotificationRepository, queueClient *asynq.Client) NotificationService {
 	return &notificationService{
 		repo:        repo,
@@ -30,22 +32,26 @@ func NewNotificationService(repo repository.NotificationRepository, queueClient 
 	}
 }
 
-// ProcessNotification is now a "Producer". It saves state and offloads the heavy work.
-func (s *notificationService) ProcessNotification(ctx context.Context, recipient, message string) error {
-	// 1. Instantly save to DB with "pending" status.
-	// The background worker will update this to "sent" or "failed" later.
+// ProcessNotification handles the business rules before pushing to the queue
+func (s *notificationService) ProcessNotification(ctx context.Context, recipient, message, idempotencyKey string) error {
+	// 1. Create the database record
 	notif := &model.Notification{
-		Recipient: recipient,
-		Message:   message,
-		Status:    "pending",
+		Recipient:      recipient,
+		Message:        message,
+		Status:         "pending",
+		IdempotencyKey: idempotencyKey, // Pass the key to the DB!
 	}
 
 	if err := s.repo.Save(ctx, notif); err != nil {
+		// If Postgres rejected this exact key, we stop immediately! We DO NOT push to the queue.
+		if errors.Is(err, repository.ErrDuplicateIdempotencyKey) {
+			return ErrDuplicateRequest
+		}
 		return fmt.Errorf("could not save pending notification: %w", err)
 	}
 
-	// 2. Package the JSON payload using our helper from Step 2
-	task, err := worker.NewSendNotificationTask(recipient, message)
+	// 2. Package the JSON payload. We explicitly pass the database ID down to the worker for idempotency checks!
+	task, err := worker.NewSendNotificationTask(notif.ID.String(), recipient, message)
 	if err != nil {
 		return fmt.Errorf("could not create task: %w", err)
 	}
