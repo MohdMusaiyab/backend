@@ -65,6 +65,17 @@ In distributed systems, external APIs (like Twilio or AWS SES) will inevitably g
 
 ---
 
-## Next Steps (Stage 5: Multiple Channels & Fan-Out)
-- **Multiple Channels:** Expanding the system beyond generic messages to specifically support Email, SMS, and Push Notifications.
-- **The Fan-Out Pattern:** Modifying the architecture so that a single incoming API event (like "User Signed Up") automatically "fans out" into multiple independent background tasks (e.g., sending a Welcome Email AND an SMS alert simultaneously).
+## Stage 5: Multiple Channels & Fan-Out (Completed)
+
+### What I Built
+In a real enterprise system, an "Order Shipped" event doesn't just trigger one action—it triggers an Email, an SMS, and a Push Notification. I transitioned my system from a simple 1-to-1 pipeline into a true **Event-Driven Router Architecture**.
+
+1. **The Pub/Sub Router:** My HTTP API no longer pushes direct "Send Email" tasks. Instead, it drops a single generic `event:notification_requested` into the queue. I built a dedicated Router Worker that picks up this event, acts as a middleman, and "fans out" by creating independent tasks for Email and SMS.
+2. **Failure Isolation:** I created completely separate Redis queues for Email and SMS. If my SMS provider goes down and thousands of tasks get stuck in the `sms` queue, my `email` queue remains completely empty and lightning fast. This guarantees that one bad dependency never degrades the entire system.
+3. **1-to-Many Database Schema:** I updated my PostgreSQL database to use a relational schema. A single broadcast event now physically links to multiple specific delivery records, allowing me to track exactly which channels succeeded and which ones failed.
+
+---
+
+## Next Steps (Stage 6: Rate Limiting & Backpressure)
+- **Rate Limiting:** Implementing strict, algorithm-based controls (like Token Bucket) to ensure I don't exceed third-party API quotas or get banned for sending too many requests per second.
+- **Backpressure Handling:** Protecting my own system from crashing when overwhelmed by massive traffic spikes. I will build mechanisms to gracefully slow down incoming requests when the queues are getting dangerously full.
