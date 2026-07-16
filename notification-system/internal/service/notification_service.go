@@ -50,8 +50,8 @@ func (s *notificationService) ProcessNotification(ctx context.Context, recipient
 		return fmt.Errorf("could not save pending notification: %w", err)
 	}
 
-	// 2. Package the JSON payload. We explicitly pass the database ID down to the worker for idempotency checks!
-	task, err := worker.NewSendNotificationTask(notif.ID.String(), recipient, message)
+	// 2. Package the JSON payload. We just broadcast an Event now! The API knows nothing about Email or SMS.
+	task, err := worker.NewEventNotificationRequestedTask(notif.ID.String(), recipient, message)
 	if err != nil {
 		return fmt.Errorf("could not create task: %w", err)
 	}

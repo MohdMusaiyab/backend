@@ -53,12 +53,13 @@ func main() {
 	// A. Data Access
 	repo := repository.NewNotificationRepository(db)
 	
-	// B. External Provider
-	sender := provider.NewMockSender()
+	// B. External Providers (Notice we have two now!)
+	emailSender := provider.NewMockEmailSender()
+	smsSender := provider.NewMockSMSSender()
 	
 	// C. Queue Client (Producer side)
 	queueClient := asynq.NewClient(redisConnOpt)
-	defer queueClient.Close() // Ensure the connection closes when the app shuts down
+	defer queueClient.Close()
 	
 	// D. Core Service (API Brain)
 	notificationService := service.NewNotificationService(repo, queueClient)
@@ -66,41 +67,42 @@ func main() {
 	// E. HTTP Handler
 	notificationHandler := handler.NewNotificationHandler(notificationService)
 
-	// F. Worker Processor (Consumer Brain)
-	notificationProcessor := worker.NewNotificationProcessor(repo, sender)
+	// F. Worker Processors (Notice we have three now!)
+	routerProcessor := worker.NewRouterProcessor(repo, queueClient)
+	emailProcessor := worker.NewChannelProcessor("Email", repo, emailSender)
+	smsProcessor := worker.NewChannelProcessor("SMS", repo, smsSender)
 
 	// =========================================================================
 	// 5. Start the Background Worker (Consumer)
-	// We run this in a Goroutine so it operates concurrently in the background!
 	// =========================================================================
 	go func() {
-		// Initialize the Asynq Server with a concurrency of 10 workers
+		// We define a total of 55 concurrent workers for our Node.
 		workerServer := asynq.NewServer(
 			redisConnOpt,
 			asynq.Config{
-				Concurrency: 10,
-				// We configure strict queue priorities. "critical" is processed 6x as often as "low".
+				Concurrency: 55, 
+				// The Magic of Rate Limiting via Queue Priorities:
+				// Email queue gets 40 "weight". SMS queue gets only 5 "weight" to protect Twilio.
 				Queues: map[string]int{
-					"critical": 6,
-					"default":  3,
-					"low":      1,
+					"critical": 10, // Router events must be processed instantly
+					"email":    40, // 40 concurrent workers chewing through fast AWS SES tasks
+					"sms":      5,  // ONLY 5 concurrent workers talking to slow/rate-limited Twilio!
 				},
-				// ErrorHandler triggers every time a task fails, BEFORE it retries.
 				ErrorHandler: asynq.ErrorHandlerFunc(func(ctx context.Context, task *asynq.Task, err error) {
-					log.Printf("[WORKER RETRY ⚠️] Task %s failed and will trigger Exponential Backoff. Reason: %v", task.Type(), err)
+					log.Printf("[WORKER RETRY ⚠️] Task %s failed. Reason: %v", task.Type(), err)
 				}),
 			},
 		)
 
-		// Create a router for our tasks (just like Gin for HTTP)
 		mux := asynq.NewServeMux()
 		
-		// Tell the router: If you see a "notification:send" job, send it to our processor!
-		mux.HandleFunc(worker.TypeSendNotification, notificationProcessor.ProcessTaskSendNotification)
+		// Map the Specific Task Types to their Specialized Processors!
+		mux.HandleFunc(worker.TypeEventNotificationRequested, routerProcessor.ProcessEventNotificationRequested)
+		mux.HandleFunc(worker.TypeSendEmail, emailProcessor.ProcessTask)
+		mux.HandleFunc(worker.TypeSendSMS, smsProcessor.ProcessTask)
 
-		log.Println("⚙️  Background Worker Pool started successfully!")
+		log.Println("⚙️  Background Worker Pools started successfully! (Email: 40 | SMS: 5 | Router: 10)")
 		
-		// Run the server (This is a blocking call, which is why it's in a Goroutine)
 		if err := workerServer.Run(mux); err != nil {
 			log.Fatalf("Worker server failed: %v", err)
 		}
