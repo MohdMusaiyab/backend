@@ -7,6 +7,7 @@ A space for brushing up backend fundamentals — building things from scratch, w
 | Todo Backend | A simple todo API to practice CRUD, routes, and data handling. | [`todo-backend`](https://github.com/MohdMusaiyab/backend/tree/main/todo-backend) |
 | Booking System | A concurrent booking API written in Go to simulate real-world booking scenarios — seats, slots, or resources — with race condition handling and goroutine-based concurrency. | [`booking-system`](https://github.com/MohdMusaiyab/backend/tree/main/booking-system) |
 | Async Image Processor | A production-grade background worker and queue system using BullMQ, Redis, and Express to process images asynchronously without blocking the main event loop. | [`image-processor-queue`](https://github.com/MohdMusaiyab/backend/tree/main/image-processor-queue) |
+| Notification System | A scalable, asynchronous notification engine built in Go using Redis Pub/Sub, distributed worker pools, and server-sent events for real-time delivery. | [`notification-system`](https://github.com/MohdMusaiyab/backend/tree/main/notification-system) |
 
 **Repo root:** [github.com/MohdMusaiyab/backend](https://github.com/MohdMusaiyab/backend)
 ## 🧠 Approach
