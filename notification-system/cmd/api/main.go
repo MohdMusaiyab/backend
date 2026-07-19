@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/mohdMusaiyab/notification-system/internal/handler"
+	"github.com/mohdMusaiyab/notification-system/internal/middleware"
 	"github.com/mohdMusaiyab/notification-system/internal/provider"
 	"github.com/mohdMusaiyab/notification-system/internal/repository"
 	"github.com/mohdMusaiyab/notification-system/internal/service"
@@ -112,7 +113,12 @@ func main() {
 	// 6. Start the HTTP API Server (Producer) on the main thread
 	// =========================================================================
 	router := gin.Default()
-	router.POST("/notification", notificationHandler.HandleSendNotification)
+	
+	// Create our API Gateway Rate Limiter (5 requests per second, burst of 10)
+	limiter := middleware.NewIPRateLimiter(5, 10)
+	
+	// Apply the middleware strictly to the notification endpoint
+	router.POST("/notification", middleware.RateLimit(limiter), notificationHandler.HandleSendNotification)
 
 	appPort := os.Getenv("APP_PORT")
 	if appPort == "" {
