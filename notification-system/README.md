@@ -76,6 +76,17 @@ In a real enterprise system, an "Order Shipped" event doesn't just trigger one a
 
 ---
 
-## Next Steps (Stage 6: Rate Limiting & Backpressure)
-- **Rate Limiting:** Implementing strict, algorithm-based controls (like Token Bucket) to ensure I don't exceed third-party API quotas or get banned for sending too many requests per second.
-- **Backpressure Handling:** Protecting my own system from crashing when overwhelmed by massive traffic spikes. I will build mechanisms to gracefully slow down incoming requests when the queues are getting dangerously full.
+## Stage 6: Rate Limiting & Backpressure (Completed)
+
+### What I Built
+When systems scale, infinite traffic is a curse, not a blessing. I built three distinct layers of defense to protect my infrastructure and my downstream dependencies from crashing under massive load spikes.
+
+1. **API Gateway Rate Limiting (Token Bucket):** I implemented an in-memory Token Bucket algorithm middleware for the HTTP API. It maps buckets strictly by IP address, rejecting aggressive spam with a `429 Too Many Requests` status before it can ever touch the Redis queues.
+2. **Queue Backpressure (Load Shedding):** I integrated `asynq.Inspector` directly into the producer. If my Redis queues exceed 5,000 pending tasks, my API intentionally triggers *Graceful Degradation*. It stops accepting requests and returns a `503 Service Unavailable` error, preventing the server from running out of RAM. 
+3. **Distributed Worker Throttling:** I implemented a globally atomic, Redis-backed Fixed Window Counter for my SMS workers. Even if I spin up 50 servers running 100 SMS workers concurrently, this distributed lock mathematically guarantees I will never exceed my provider's strict requests-per-second limit.
+
+---
+
+## Next Steps (Stage 7: User Preferences & Templating)
+- **User Preferences:** Building a real-world subscription mechanism where users can explicitly opt-in or opt-out of specific notification channels (e.g., "Send me emails, but turn off SMS alerts").
+- **Dynamic Templating:** Transitioning from hardcoded string messages to rich, dynamic templates (e.g., passing in an event payload and injecting the user's real name and order details).
