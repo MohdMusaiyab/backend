@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 
 	"github.com/hibiken/asynq"
 	"github.com/mohdMusaiyab/notification-system/internal/model"
@@ -11,10 +12,9 @@ import (
 	"github.com/mohdMusaiyab/notification-system/internal/worker"
 )
 
-// ErrDuplicateRequest lets the handler know the client sent the exact same request twice
 var ErrDuplicateRequest = errors.New("duplicate request detected")
+var ErrSystemOverloaded = errors.New("system overloaded (backpressure applied)") // 🔥 NEW!
 
-// NotificationService defines the core business logic interface
 type NotificationService interface {
 	ProcessNotification(ctx context.Context, recipient, message, idempotencyKey string) error
 }
@@ -22,51 +22,71 @@ type NotificationService interface {
 type notificationService struct {
 	repo        repository.NotificationRepository
 	queueClient *asynq.Client
+	inspector   *asynq.Inspector // 🔥 NEW! Allows us to peek into Redis Queues
 }
 
 // NewNotificationService creates a new instance of the service
-func NewNotificationService(repo repository.NotificationRepository, queueClient *asynq.Client) NotificationService {
+func NewNotificationService(repo repository.NotificationRepository, queueClient *asynq.Client, inspector *asynq.Inspector) NotificationService {
 	return &notificationService{
 		repo:        repo,
 		queueClient: queueClient,
+		inspector:   inspector,
 	}
 }
 
 // ProcessNotification handles the business rules before pushing to the queue
 func (s *notificationService) ProcessNotification(ctx context.Context, recipient, message, idempotencyKey string) error {
+	
+	// =========================================================================
+	// BACKPRESSURE: Load Shedding Check
+	// =========================================================================
+	// Before we even touch the database, check if the system is drowning in work.
+	queues, err := s.inspector.Queues()
+	if err == nil {
+		totalPending := 0
+		for _, q := range queues {
+			info, _ := s.inspector.GetQueueInfo(q)
+			if info != nil {
+				// We care about tasks sitting waiting (Pending) and tasks currently executing (Active)
+				totalPending += info.Pending + info.Active
+			}
+		}
+		
+		// If there are more than 5,000 tasks in the system, we aggressively reject new traffic.
+		// (In a real system, you'd put this threshold in an env var instead of hardcoding)
+		if totalPending > 5000 {
+			log.Printf("[BACKPRESSURE ⚠️] System overloaded! Total tasks: %d. Rejecting traffic.", totalPending)
+			return ErrSystemOverloaded
+		}
+	}
+
 	// 1. Create the database record
 	notif := &model.Notification{
 		Recipient:      recipient,
 		Message:        message,
 		Status:         "pending",
-		IdempotencyKey: idempotencyKey, // Pass the key to the DB!
+		IdempotencyKey: idempotencyKey,
 	}
 
 	if err := s.repo.Save(ctx, notif); err != nil {
-		// If Postgres rejected this exact key, we stop immediately! We DO NOT push to the queue.
 		if errors.Is(err, repository.ErrDuplicateIdempotencyKey) {
 			return ErrDuplicateRequest
 		}
 		return fmt.Errorf("could not save pending notification: %w", err)
 	}
 
-	// 2. Package the JSON payload. We just broadcast an Event now! The API knows nothing about Email or SMS.
+	// 2. Package the generic event payload
 	task, err := worker.NewEventNotificationRequestedTask(notif.ID.String(), recipient, message)
 	if err != nil {
 		return fmt.Errorf("could not create task: %w", err)
 	}
 
-	// 3. Push the task to the Redis Queue!
-	// We explicitly set MaxRetry to 3. If it fails 3 times, it gets moved to the DLQ (Archived).
-	// We also assign it to the "critical" queue so the worker prioritizes it over normal jobs.
+	// 3. Push the task to the Redis Queue
 	info, err := s.queueClient.EnqueueContext(ctx, task, asynq.MaxRetry(3), asynq.Queue("critical"))
 	if err != nil {
 		return fmt.Errorf("could not enqueue task: %w", err)
 	}
 
-	// Log it for our own visibility
 	fmt.Printf("[PRODUCER] Enqueued task: id=%s type=%s queue=%s\n", info.ID, info.Type, info.Queue)
-	
-	// 4. Return instantly! No waiting 500ms for Twilio/Mock to respond.
 	return nil
 }

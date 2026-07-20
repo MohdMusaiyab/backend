@@ -18,6 +18,8 @@ import (
 	"github.com/mohdMusaiyab/notification-system/internal/repository"
 	"github.com/mohdMusaiyab/notification-system/internal/service"
 	"github.com/mohdMusaiyab/notification-system/internal/worker"
+	
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -62,16 +64,26 @@ func main() {
 	queueClient := asynq.NewClient(redisConnOpt)
 	defer queueClient.Close()
 	
+	// C.1 Queue Inspector (For Backpressure Load Shedding)
+	inspector := asynq.NewInspector(redisConnOpt)
+	defer inspector.Close()
+	
 	// D. Core Service (API Brain)
-	notificationService := service.NewNotificationService(repo, queueClient)
+	notificationService := service.NewNotificationService(repo, queueClient, inspector)
 	
 	// E. HTTP Handler
 	notificationHandler := handler.NewNotificationHandler(notificationService)
 
-	// F. Worker Processors (Notice we have three now!)
+	// F. Raw Redis Client (For the Global Rate Limiter inside the workers)
+	rawRedisClient := redis.NewClient(&redis.Options{
+		Addr: redisAddr,
+	})
+	defer rawRedisClient.Close()
+
+	// G. Worker Processors
 	routerProcessor := worker.NewRouterProcessor(repo, queueClient)
-	emailProcessor := worker.NewChannelProcessor("Email", repo, emailSender)
-	smsProcessor := worker.NewChannelProcessor("SMS", repo, smsSender)
+	emailProcessor := worker.NewChannelProcessor("Email", repo, emailSender, rawRedisClient)
+	smsProcessor := worker.NewChannelProcessor("SMS", repo, smsSender, rawRedisClient)
 
 	// =========================================================================
 	// 5. Start the Background Worker (Consumer)
