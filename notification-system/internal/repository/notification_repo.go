@@ -21,6 +21,11 @@ type NotificationRepository interface {
 	SaveDeliveries(ctx context.Context, deliveries []model.NotificationDelivery) error
 	GetDeliveryByID(ctx context.Context, id string) (*model.NotificationDelivery, error)
 	UpdateDeliveryStatus(ctx context.Context, deliveryID string, status string) error
+
+	// Methods for User & Template lookups (Stage 7)
+	GetUserByID(ctx context.Context, id string) (*model.User, error)
+	GetLatestTemplateVersion(ctx context.Context, name string) (*model.Template, error)
+	GetTemplate(ctx context.Context, name, version string) (*model.Template, error)
 }
 
 type notificationRepository struct {
@@ -71,4 +76,26 @@ func (r *notificationRepository) GetDeliveryByID(ctx context.Context, id string)
 // UpdateDeliveryStatus allows specific channel workers to mark themselves as Sent or Failed
 func (r *notificationRepository) UpdateDeliveryStatus(ctx context.Context, deliveryID string, status string) error {
 	return r.db.WithContext(ctx).Model(&model.NotificationDelivery{}).Where("id = ?", deliveryID).Update("status", status).Error
+}
+
+// GetUserByID fetches the user and automatically unmarshals their JSONB preferences for the Router.
+func (r *notificationRepository) GetUserByID(ctx context.Context, id string) (*model.User, error) {
+	var user model.User
+	err := r.db.WithContext(ctx).First(&user, "id = ?", id).Error
+	return &user, err
+}
+
+// GetLatestTemplateVersion resolves the "active" version dynamically for the API Producer.
+func (r *notificationRepository) GetLatestTemplateVersion(ctx context.Context, name string) (*model.Template, error) {
+	var template model.Template
+	// I'm ordering by CreatedAt DESC and grabbing the first one to find the newest version!
+	err := r.db.WithContext(ctx).Where("name = ?", name).Order("created_at desc").First(&template).Error
+	return &template, err
+}
+
+// GetTemplate is the strict lookup the worker uses to fetch the exact, frozen version it was assigned.
+func (r *notificationRepository) GetTemplate(ctx context.Context, name, version string) (*model.Template, error) {
+	var template model.Template
+	err := r.db.WithContext(ctx).Where("name = ? AND version = ?", name, version).First(&template).Error
+	return &template, err
 }
