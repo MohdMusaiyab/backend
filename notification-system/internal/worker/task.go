@@ -7,34 +7,37 @@ import (
 )
 
 const (
-	// The generic fan-out event (Pushed by the HTTP API)
 	TypeEventNotificationRequested = "event:notification_requested"
-
-	// The specific isolated channel tasks (Pushed by the Router Worker)
-	TypeSendEmail = "notification:send:email"
-	TypeSendSMS   = "notification:send:sms"
+	TypeSendEmail                  = "notification:send:email"
+	TypeSendSMS                    = "notification:send:sms"
 )
 
 // EventNotificationRequestedPayload is used by the API to just say "Hey, an event happened!"
 type EventNotificationRequestedPayload struct {
-	NotificationID string
-	Recipient      string
-	Message        string
+	NotificationID  string
+	UserID          string
+	TemplateName    string
+	TemplateVersion string
+	Data            map[string]interface{}
 }
 
 // ChannelDeliveryPayload is used by the specific Email/SMS workers
 type ChannelDeliveryPayload struct {
-	DeliveryID string // Notice we pass the DeliveryID, not the parent NotificationID!
-	Recipient  string
-	Message    string
+	DeliveryID      string 
+	UserID          string
+	TemplateName    string
+	TemplateVersion string
+	Data            map[string]interface{}
 }
 
 // NewEventNotificationRequestedTask is created by the HTTP API Producer
-func NewEventNotificationRequestedTask(notificationID, recipient, message string) (*asynq.Task, error) {
+func NewEventNotificationRequestedTask(notificationID, userID, templateName, templateVersion string, data map[string]interface{}) (*asynq.Task, error) {
 	payload, err := json.Marshal(EventNotificationRequestedPayload{
-		NotificationID: notificationID,
-		Recipient:      recipient,
-		Message:        message,
+		NotificationID:  notificationID,
+		UserID:          userID,
+		TemplateName:    templateName,
+		TemplateVersion: templateVersion,
+		Data:            data,
 	})
 	if err != nil {
 		return nil, err
@@ -43,11 +46,13 @@ func NewEventNotificationRequestedTask(notificationID, recipient, message string
 }
 
 // NewSendEmailTask is created dynamically by the Router Worker
-func NewSendEmailTask(deliveryID, recipient, message string) (*asynq.Task, error) {
+func NewSendEmailTask(deliveryID, userID, templateName, templateVersion string, data map[string]interface{}) (*asynq.Task, error) {
 	payload, err := json.Marshal(ChannelDeliveryPayload{
-		DeliveryID: deliveryID,
-		Recipient:  recipient,
-		Message:    message,
+		DeliveryID:      deliveryID,
+		UserID:          userID,
+		TemplateName:    templateName,
+		TemplateVersion: templateVersion,
+		Data:            data,
 	})
 	if err != nil {
 		return nil, err
@@ -56,11 +61,13 @@ func NewSendEmailTask(deliveryID, recipient, message string) (*asynq.Task, error
 }
 
 // NewSendSMSTask is created dynamically by the Router Worker
-func NewSendSMSTask(deliveryID, recipient, message string) (*asynq.Task, error) {
+func NewSendSMSTask(deliveryID, userID, templateName, templateVersion string, data map[string]interface{}) (*asynq.Task, error) {
 	payload, err := json.Marshal(ChannelDeliveryPayload{
-		DeliveryID: deliveryID,
-		Recipient:  recipient,
-		Message:    message,
+		DeliveryID:      deliveryID,
+		UserID:          userID,
+		TemplateName:    templateName,
+		TemplateVersion: templateVersion,
+		Data:            data,
 	})
 	if err != nil {
 		return nil, err

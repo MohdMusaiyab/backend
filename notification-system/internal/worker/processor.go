@@ -1,10 +1,12 @@
 package worker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"text/template"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -39,7 +41,7 @@ func (processor *ChannelProcessor) ProcessTask(ctx context.Context, t *asynq.Tas
 		return fmt.Errorf("json.Unmarshal failed: %v: %w", err, asynq.SkipRetry)
 	}
 
-	log.Printf("[%s CONSUMER] 📥 Pulled task for recipient: %s", processor.name, payload.Recipient)
+	log.Printf("[%s CONSUMER] 📥 Pulled task for User: %s", processor.name, payload.UserID)
 
 	// 1. IDEMPOTENCY CHECK
 	delivery, err := processor.repo.GetDeliveryByID(ctx, payload.DeliveryID)
@@ -56,43 +58,78 @@ func (processor *ChannelProcessor) ProcessTask(ctx context.Context, t *asynq.Tas
 	// 2. GLOBAL WORKER RATE LIMITING (Distributed Fixed Window Counter)
 	// =========================================================================
 	if processor.name == "SMS" && processor.redisClient != nil {
-		// We use a simple Redis Fixed Window Counter for rate limiting SMS globally
-		// We use the current second as the key (e.g., "rate_limit:sms:1634567890")
 		now := time.Now().Unix()
 		key := fmt.Sprintf("rate_limit:sms:%d", now)
 
-		// Increment the counter. Since Redis is single-threaded, this is 100% thread-safe globally!
 		count, err := processor.redisClient.Incr(ctx, key).Result()
 		if err != nil {
 			return fmt.Errorf("redis rate limiter failed: %w", err)
 		}
 
-		// If it's the first request in this exact second, set it to automatically delete itself 
-		// after 5 seconds so our Redis server doesn't slowly run out of memory with millions of keys.
 		if count == 1 {
 			processor.redisClient.Expire(ctx, key, 5*time.Second)
 		}
 
-		// Twilio Limit: Maximum 2 SMS per second globally!
-		// If we are request #3, we immediately abort.
 		if count > 2 {
 			log.Printf("[SMS GLOBAL RATE LIMIT ⚠️] Twilio capacity reached! Backing off...")
-			// Returning an error tells Asynq to put the task back in the queue and try again later
 			return fmt.Errorf("global SMS rate limit exceeded (2/sec)")
 		}
 	}
 
-	// 3. Call the external provider (Twilio or AWS SES)
-	err = processor.sender.Send(ctx, payload.Recipient, payload.Message)
+	// =========================================================================
+	// 3. FETCH USER DATA & TEMPLATE (The Stage 7 Magic!)
+	// =========================================================================
+	// We no longer pass raw emails through the queue. We fetch the user NOW.
+	user, err := processor.repo.GetUserByID(ctx, payload.UserID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch user %s: %w", payload.UserID, asynq.SkipRetry)
+	}
+
+	// Dynamically determine the destination
+	contactInfo := ""
+	if processor.name == "Email" {
+		contactInfo = user.Email
+	} else if processor.name == "SMS" {
+		contactInfo = user.Phone
+	}
+
+	if contactInfo == "" {
+		return fmt.Errorf("user %s has no contact info for channel %s: %w", payload.UserID, processor.name, asynq.SkipRetry)
+	}
+
+	// Fetch the strictly versioned template that was frozen onto the payload
+	// This completely prevents mid-flight crashes!
+	dbTemplate, err := processor.repo.GetTemplate(ctx, payload.TemplateName, payload.TemplateVersion)
+	if err != nil {
+		return fmt.Errorf("failed to fetch template '%s' %s: %w", payload.TemplateName, payload.TemplateVersion, asynq.SkipRetry)
+	}
+
+	// =========================================================================
+	// 4. DYNAMIC TEMPLATE RENDERING
+	// =========================================================================
+	// We use Go's built-in text/template engine to merge the raw DB string with the JSON payload
+	tmpl, err := template.New("notification").Parse(dbTemplate.BodyTemplate)
+	if err != nil {
+		return fmt.Errorf("failed to parse template: %w", err, asynq.SkipRetry)
+	}
+
+	var renderedBody bytes.Buffer
+	if err := tmpl.Execute(&renderedBody, payload.Data); err != nil {
+		// If the JSON payload doesn't match the template variables, it will error here.
+		return fmt.Errorf("failed to execute template: %w", err, asynq.SkipRetry)
+	}
+
+	// 5. Call the external provider (Twilio or AWS SES)
+	err = processor.sender.Send(ctx, contactInfo, renderedBody.String())
 	if err != nil {
 		return fmt.Errorf("external sender failed: %w", err)
 	}
 
-	// 4. Mark this specific channel as sent!
+	// 6. Mark this specific channel as sent!
 	if err := processor.repo.UpdateDeliveryStatus(ctx, payload.DeliveryID, "sent"); err != nil {
 		return fmt.Errorf("failed to update status to sent: %w", err)
 	}
 
-	log.Printf("[%s CONSUMER] ✅ Successfully sent to %s and updated DB!", processor.name, payload.Recipient)
+	log.Printf("[%s CONSUMER] ✅ Successfully sent to %s and updated DB!", processor.name, contactInfo)
 	return nil
 }

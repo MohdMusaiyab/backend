@@ -11,7 +11,7 @@ import (
 	"github.com/mohdMusaiyab/notification-system/internal/repository"
 )
 
-// RouterProcessor is the middleman. It listens for events and fans them out to specific channel queues.
+// RouterProcessor is the intelligent middleman. It listens for events, checks user preferences, and fans them out.
 type RouterProcessor struct {
 	repo        repository.NotificationRepository
 	queueClient *asynq.Client
@@ -25,14 +25,14 @@ func NewRouterProcessor(repo repository.NotificationRepository, queueClient *asy
 	}
 }
 
-// ProcessEventNotificationRequested grabs the generic event and fans it out!
+// ProcessEventNotificationRequested grabs the generic event and fans it out intelligently!
 func (p *RouterProcessor) ProcessEventNotificationRequested(ctx context.Context, t *asynq.Task) error {
 	var payload EventNotificationRequestedPayload
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
 		return fmt.Errorf("json.Unmarshal failed: %v: %w", err, asynq.SkipRetry)
 	}
 
-	log.Printf("[ROUTER] 🔀 Pulled Event for %s. Analyzing routing preferences...", payload.Recipient)
+	log.Printf("[ROUTER] 🔀 Pulled Event for User: %s. Analyzing routing preferences...", payload.UserID)
 
 	// Fetch the parent notification
 	notif, err := p.repo.GetByID(ctx, payload.NotificationID)
@@ -41,18 +41,40 @@ func (p *RouterProcessor) ProcessEventNotificationRequested(ctx context.Context,
 	}
 
 	// 1. ROUTER IDEMPOTENCY CHECK
-	// If the router crashes mid-fan-out, we don't want it to duplicate the deliveries when it retries.
 	if len(notif.Deliveries) > 0 {
 		log.Printf("[ROUTER IDEMPOTENCY ✅] Event %s already fanned out! Skipping.", payload.NotificationID)
 		return nil
 	}
 
-	// 2. Define the routing logic (In reality, we'd check user preferences in the DB)
-	// For this system, we will fan-out to BOTH Email and SMS to prove it works.
-	channels := []string{"email", "sms"}
-	var deliveries []model.NotificationDelivery
+	// =========================================================================
+	// 2. FETCH USER PREFERENCES (The Stage 7 Magic!)
+	// =========================================================================
+	user, err := p.repo.GetUserByID(ctx, payload.UserID)
+	if err != nil {
+		// If the user doesn't exist, we skip retrying. It's a fatal error.
+		return fmt.Errorf("failed to fetch user %s: %w", payload.UserID, asynq.SkipRetry)
+	}
 
-	for _, ch := range channels {
+	// 3. INTELLIGENT ROUTING LOGIC
+	var activeChannels []string
+	
+	// We read the JSONB map directly as a strongly-typed Go struct!
+	if user.Preferences.Channels.Email {
+		activeChannels = append(activeChannels, "email")
+	}
+	if user.Preferences.Channels.SMS {
+		activeChannels = append(activeChannels, "sms")
+	}
+
+	// If the user turned EVERYTHING off, we just mark it as suppressed and gracefully stop.
+	if len(activeChannels) == 0 {
+		log.Printf("[ROUTER 🛑] User %s opted out of all channels. Suppressing notification.", payload.UserID)
+		p.repo.UpdateStatus(ctx, payload.NotificationID, "suppressed_by_preference")
+		return nil
+	}
+
+	var deliveries []model.NotificationDelivery
+	for _, ch := range activeChannels {
 		deliveries = append(deliveries, model.NotificationDelivery{
 			NotificationID: notif.ID,
 			Channel:        ch,
@@ -60,32 +82,30 @@ func (p *RouterProcessor) ProcessEventNotificationRequested(ctx context.Context,
 		})
 	}
 
-	// 3. Save the specific deliveries to the database
+	// 4. Save the specific deliveries to the database
 	if err := p.repo.SaveDeliveries(ctx, deliveries); err != nil {
 		return fmt.Errorf("failed to save deliveries: %w", err)
 	}
 
-	// 4. THE FAN-OUT
-	// GORM automatically populates the UUIDs in our 'deliveries' slice after saving them.
-	// Now we loop through them and push them into completely isolated queues!
+	// 5. THE FAN-OUT
 	for _, delivery := range deliveries {
 		var task *asynq.Task
 		var err error
 		queueName := "default"
 
+		// We pass the incredibly rich payload straight down to the individual channel workers!
 		if delivery.Channel == "email" {
-			task, err = NewSendEmailTask(delivery.ID.String(), payload.Recipient, payload.Message)
-			queueName = "email" // Routing to the 'email' queue!
+			task, err = NewSendEmailTask(delivery.ID.String(), payload.UserID, payload.TemplateName, payload.TemplateVersion, payload.Data)
+			queueName = "email"
 		} else if delivery.Channel == "sms" {
-			task, err = NewSendSMSTask(delivery.ID.String(), payload.Recipient, payload.Message)
-			queueName = "sms"   // Routing to the 'sms' queue!
+			task, err = NewSendSMSTask(delivery.ID.String(), payload.UserID, payload.TemplateName, payload.TemplateVersion, payload.Data)
+			queueName = "sms"
 		}
 
 		if err != nil {
 			return fmt.Errorf("failed to create task for %s: %w", delivery.Channel, err)
 		}
 
-		// Enqueue the task to its specific queue. We use MaxRetry(3).
 		_, err = p.queueClient.EnqueueContext(ctx, task, asynq.MaxRetry(3), asynq.Queue(queueName))
 		if err != nil {
 			return fmt.Errorf("failed to enqueue task for %s: %w", delivery.Channel, err)
@@ -94,11 +114,11 @@ func (p *RouterProcessor) ProcessEventNotificationRequested(ctx context.Context,
 		log.Printf("[ROUTER] ➡️  Routed task to '%s' queue (DeliveryID: %s)", queueName, delivery.ID)
 	}
 
-	// 5. Mark the parent event as fully routed
+	// 6. Mark the parent event as fully routed
 	if err := p.repo.UpdateStatus(ctx, payload.NotificationID, "routed"); err != nil {
 		return fmt.Errorf("failed to update parent status: %w", err)
 	}
 
-	log.Printf("[ROUTER] ✅ Successfully fanned out Event %s to %d isolated queues!", payload.NotificationID, len(channels))
+	log.Printf("[ROUTER] ✅ Successfully fanned out Event %s to %d isolated queues!", payload.NotificationID, len(activeChannels))
 	return nil
 }

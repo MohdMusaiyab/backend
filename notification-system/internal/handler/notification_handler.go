@@ -17,10 +17,11 @@ func NewNotificationHandler(service service.NotificationService) *NotificationHa
 	return &NotificationHandler{service: service}
 }
 
-// SendNotificationRequest defines the expected JSON payload
+// SendNotificationRequest defines the rich JSON payload for Stage 7
 type SendNotificationRequest struct {
-	Recipient string `json:"recipient" binding:"required,email"`
-	Message   string `json:"message" binding:"required"`
+	UserID       string                 `json:"user_id" binding:"required,uuid"`
+	TemplateName string                 `json:"template_name" binding:"required"`
+	Data         map[string]interface{} `json:"data"`
 }
 
 // HandleSendNotification is the Gin controller for POST /notification
@@ -35,12 +36,12 @@ func (h *NotificationHandler) HandleSendNotification(c *gin.Context) {
 	var req SendNotificationRequest
 	// 2. Validate the incoming JSON structure
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload. Ensure user_id is a valid UUID."})
 		return
 	}
 
-	// 3. Pass the validated data AND the idempotency key down to the Brain (Service Layer)
-	err := h.service.ProcessNotification(c.Request.Context(), req.Recipient, req.Message, idempotencyKey)
+	// 3. Pass the validated data down to the Brain (Service Layer)
+	err := h.service.ProcessNotification(c.Request.Context(), req.UserID, req.TemplateName, req.Data, idempotencyKey)
 	if err != nil {
 		// If the Brain tells us it's a duplicate, we calmly return a 200 OK
 		if err == service.ErrDuplicateRequest {
@@ -56,10 +57,10 @@ func (h *NotificationHandler) HandleSendNotification(c *gin.Context) {
 			return
 		}
 
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process notification"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process notification: " + err.Error()})
 		return
 	}
 
 	// 4. Respond instantly with a 202 Accepted
-	c.JSON(http.StatusAccepted, gin.H{"status": "Notification enqueued for delivery"})
+	c.JSON(http.StatusAccepted, gin.H{"status": "Notification event enqueued for dynamic routing"})
 }
