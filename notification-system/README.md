@@ -87,6 +87,17 @@ When systems scale, infinite traffic is a curse, not a blessing. I built three d
 
 ---
 
-## Next Steps (Stage 7: User Preferences & Templating)
-- **User Preferences:** Building a real-world subscription mechanism where users can explicitly opt-in or opt-out of specific notification channels (e.g., "Send me emails, but turn off SMS alerts").
-- **Dynamic Templating:** Transitioning from hardcoded string messages to rich, dynamic templates (e.g., passing in an event payload and injecting the user's real name and order details).
+## Stage 7: User Preferences & Templating (Completed)
+
+### What I Built
+I transitioned the system from a pure infrastructure pipeline into a business-ready product. Real-world systems don't just blindly spam users; they enforce strict rules and offer deep personalization.
+
+1. **JSONB Preference Engine:** I utilized PostgreSQL's `JSONB` data type to build a wildly flexible user preferences schema. When the Router pulls an event, it queries the DB, automatically parses the JSON, and strictly enforces the user's opt-out choices. If a user disabled SMS, the Router intentionally skips the SMS queue, saving server resources and API credits.
+2. **Immutable Template Versioning (The Mid-Flight Fix):** To prevent "Distributed Race Conditions", I architected a version-locked templating engine. The API resolves the absolute newest template (e.g., `v2`) and stamps it permanently onto the job payload. Even if a marketer publishes `v3` while the job is stuck in the queue, the worker guarantees it uses `v2` to render, completely eliminating mid-flight crashes.
+3. **Dynamic Go Rendering:** I stripped out hardcoded strings and implemented Go's `html/template` engine. The worker mathematically merges the raw database template with the highly dynamic JSON payload sitting in the Redis queue to generate beautifully personalized messages just milliseconds before delivery.
+
+---
+
+## Next Steps (Stage 8: Scheduling & Delayed Notifications)
+- **Time-Travel Deliveries:** Instead of sending notifications instantly, I will build support for features like "send this in 2 hours" or "remind me tomorrow at 9 AM".
+- **Delayed Queueing:** Leveraging Redis sorted sets and Asynq's built-in delayed processing mechanics to perfectly schedule notifications for future delivery without blocking the API or constantly polling the database.
