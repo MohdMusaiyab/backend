@@ -16,6 +16,9 @@ type Notification struct {
 	// IdempotencyKey prevents duplicate requests from being processed multiple times
 	IdempotencyKey string    `gorm:"unique;column:idempotency_key"`
 	
+	// SendAt is an optional field. If provided, Redis will hide this task until the exact timestamp!
+	SendAt         *time.Time
+	
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 
