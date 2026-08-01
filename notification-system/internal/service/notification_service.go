@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/hibiken/asynq"
 	"github.com/mohdMusaiyab/notification-system/internal/model"
@@ -17,8 +18,8 @@ var ErrDuplicateRequest = errors.New("duplicate request detected")
 var ErrSystemOverloaded = errors.New("system overloaded (backpressure applied)") 
 
 type NotificationService interface {
-	// Updated signature for Stage 7: We now accept UserID, TemplateName, and a highly dynamic Data map
-	ProcessNotification(ctx context.Context, userID, templateName string, data map[string]interface{}, idempotencyKey string) error
+	// Updated signature for Stage 8: We now accept an optional sendAt timestamp
+	ProcessNotification(ctx context.Context, userID, templateName string, data map[string]interface{}, idempotencyKey string, sendAt *time.Time) error
 }
 
 type notificationService struct {
@@ -35,7 +36,7 @@ func NewNotificationService(repo repository.NotificationRepository, queueClient 
 	}
 }
 
-func (s *notificationService) ProcessNotification(ctx context.Context, userID, templateName string, data map[string]interface{}, idempotencyKey string) error {
+func (s *notificationService) ProcessNotification(ctx context.Context, userID, templateName string, data map[string]interface{}, idempotencyKey string, sendAt *time.Time) error {
 	
 	// =========================================================================
 	// 1. BACKPRESSURE: Load Shedding Check
@@ -76,6 +77,7 @@ func (s *notificationService) ProcessNotification(ctx context.Context, userID, t
 		Message:        fmt.Sprintf("Template: %s, Version: %s, Data: %s", templateName, latestTemplate.Version, string(dataBytes)),
 		Status:         "pending",
 		IdempotencyKey: idempotencyKey,
+		SendAt:         sendAt, // STAGE 8: Save the target execution time for historical records
 	}
 
 	if err := s.repo.Save(ctx, notif); err != nil {
@@ -86,11 +88,9 @@ func (s *notificationService) ProcessNotification(ctx context.Context, userID, t
 	}
 
 	// =========================================================================
-	// 4. THE QUEUE PAYLOAD
+	// 4. THE QUEUE PAYLOAD & DELAYED SCHEDULING (Stage 8)
 	// =========================================================================
 	// Notice we physically stamp `latestTemplate.Version` onto the job payload.
-	// Even if marketing releases v2 while this job is stuck in the queue, 
-	// the worker will guarantee it uses the correct v1 template!
 	task, err := worker.NewEventNotificationRequestedTask(
 		notif.ID.String(), 
 		userID, 
@@ -102,7 +102,20 @@ func (s *notificationService) ProcessNotification(ctx context.Context, userID, t
 		return fmt.Errorf("could not create task: %w", err)
 	}
 
-	info, err := s.queueClient.EnqueueContext(ctx, task, asynq.MaxRetry(3), asynq.Queue("critical"))
+	// Default options: retry up to 3 times, throw it in the critical queue
+	opts := []asynq.Option{
+		asynq.MaxRetry(3), 
+		asynq.Queue("critical"),
+	}
+
+	// STAGE 8 MAGIC: If the user provided a future timestamp, we tell Redis 
+	// to hide this task in a ZSET (Sorted Set) until the exact millisecond!
+	if sendAt != nil {
+		opts = append(opts, asynq.ProcessAt(*sendAt))
+		log.Printf("[PRODUCER] 🕒 Time-Travel engaged! Scheduling task for %v", sendAt.Format(time.RFC1123))
+	}
+
+	info, err := s.queueClient.EnqueueContext(ctx, task, opts...)
 	if err != nil {
 		return fmt.Errorf("could not enqueue task: %w", err)
 	}
