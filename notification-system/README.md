@@ -98,6 +98,17 @@ I transitioned the system from a pure infrastructure pipeline into a business-re
 
 ---
 
-## Next Steps (Stage 8: Scheduling & Delayed Notifications)
-- **Time-Travel Deliveries:** Instead of sending notifications instantly, I will build support for features like "send this in 2 hours" or "remind me tomorrow at 9 AM".
-- **Delayed Queueing:** Leveraging Redis sorted sets and Asynq's built-in delayed processing mechanics to perfectly schedule notifications for future delivery without blocking the API or constantly polling the database.
+## Stage 8: Scheduling & Delayed Notifications (Completed)
+
+### What I Built
+I implemented "Time-Travel Deliveries" using Broker-Native Delay mechanisms, allowing the system to perfectly schedule notifications for future execution without blocking the API or constantly polling the database.
+
+1. **Database Schema Expansion:** Safely added an optional `send_at` timestamp to the Postgres `notifications` table to keep a permanent, historical record of intended execution times.
+2. **Go Model & API Updates:** Upgraded the JSON handler to accept and natively validate ISO-8601 timestamps (`*time.Time`), explicitly rejecting any attempts to schedule messages in the past.
+3. **Redis ZSET Magic:** Integrated `asynq.ProcessAt()` into the Service Layer. If a future timestamp is detected, the task bypasses the active queue and is placed directly into a Redis Sorted Set (ZSET). Asynq silently monitors this set in-memory and drops the task into the active queue at the exact millisecond it is due.
+
+---
+
+## Next Steps (Stage 9: Observability)
+- **The Telemetry Stack:** Setting up Prometheus and Grafana to visualize queue depth, delivery success rates, and latency percentiles.
+- **Structured Logging:** Transitioning from simple text logs to structured JSON logs with threaded Request IDs to track a single notification's journey across the entire distributed system.
