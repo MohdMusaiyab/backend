@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -18,8 +18,8 @@ var ErrDuplicateRequest = errors.New("duplicate request detected")
 var ErrSystemOverloaded = errors.New("system overloaded (backpressure applied)") 
 
 type NotificationService interface {
-	// Updated signature for Stage 8: We now accept an optional sendAt timestamp
-	ProcessNotification(ctx context.Context, userID, templateName string, data map[string]interface{}, idempotencyKey string, sendAt *time.Time) error
+	// Updated signature for Stage 8: We now accept an optional sendAt timestamp and Stage 9 RequestID
+	ProcessNotification(ctx context.Context, userID, templateName string, data map[string]interface{}, idempotencyKey string, sendAt *time.Time, requestID string) error
 }
 
 type notificationService struct {
@@ -36,7 +36,7 @@ func NewNotificationService(repo repository.NotificationRepository, queueClient 
 	}
 }
 
-func (s *notificationService) ProcessNotification(ctx context.Context, userID, templateName string, data map[string]interface{}, idempotencyKey string, sendAt *time.Time) error {
+func (s *notificationService) ProcessNotification(ctx context.Context, userID, templateName string, data map[string]interface{}, idempotencyKey string, sendAt *time.Time, requestID string) error {
 	
 	// =========================================================================
 	// 1. BACKPRESSURE: Load Shedding Check
@@ -52,7 +52,7 @@ func (s *notificationService) ProcessNotification(ctx context.Context, userID, t
 		}
 		
 		if totalPending > 5000 {
-			log.Printf("[BACKPRESSURE ⚠️] System overloaded! Total tasks: %d. Rejecting traffic.", totalPending)
+			slog.Warn("System overloaded! Rejecting traffic.", "total_pending", totalPending)
 			return ErrSystemOverloaded
 		}
 	}
@@ -97,6 +97,7 @@ func (s *notificationService) ProcessNotification(ctx context.Context, userID, t
 		templateName, 
 		latestTemplate.Version, 
 		data,
+		requestID, // Pass the trace ID to the queue!
 	)
 	if err != nil {
 		return fmt.Errorf("could not create task: %w", err)
@@ -108,11 +109,12 @@ func (s *notificationService) ProcessNotification(ctx context.Context, userID, t
 		asynq.Queue("critical"),
 	}
 
-	// STAGE 8 MAGIC: If the user provided a future timestamp, we tell Redis 
-	// to hide this task in a ZSET (Sorted Set) until the exact millisecond!
+	// STAGE 9 MAGIC: Bind the trace ID to this logger!
+	logger := slog.With("request_id", requestID)
+
 	if sendAt != nil {
 		opts = append(opts, asynq.ProcessAt(*sendAt))
-		log.Printf("[PRODUCER] 🕒 Time-Travel engaged! Scheduling task for %v", sendAt.Format(time.RFC1123))
+		logger.Info("Time-Travel engaged! Scheduling task", "send_at", sendAt.Format(time.RFC1123))
 	}
 
 	info, err := s.queueClient.EnqueueContext(ctx, task, opts...)
@@ -120,6 +122,6 @@ func (s *notificationService) ProcessNotification(ctx context.Context, userID, t
 		return fmt.Errorf("could not enqueue task: %w", err)
 	}
 
-	log.Printf("[PRODUCER] Enqueued task: id=%s template=%s version=%s", info.ID, templateName, latestTemplate.Version)
+	logger.Info("Enqueued task", "id", info.ID, "template", templateName, "version", latestTemplate.Version)
 	return nil
 }

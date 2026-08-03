@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/mohdMusaiyab/notification-system/internal/service"
 )
 
@@ -52,8 +53,14 @@ func (h *NotificationHandler) HandleSendNotification(c *gin.Context) {
 		}
 	}
 
+	// 2.7 STAGE 9 TRACING: Generate or extract Request ID
+	requestID := c.GetHeader("X-Request-ID")
+	if requestID == "" {
+		requestID = uuid.New().String()
+	}
+
 	// 3. Pass the validated data down to the Brain (Service Layer)
-	err := h.service.ProcessNotification(c.Request.Context(), req.UserID, req.TemplateName, req.Data, idempotencyKey, req.SendAt)
+	err := h.service.ProcessNotification(c.Request.Context(), req.UserID, req.TemplateName, req.Data, idempotencyKey, req.SendAt, requestID)
 	if err != nil {
 		// If the Brain tells us it's a duplicate, we calmly return a 200 OK
 		if err == service.ErrDuplicateRequest {
@@ -73,6 +80,9 @@ func (h *NotificationHandler) HandleSendNotification(c *gin.Context) {
 		return
 	}
 
-	// 4. Respond instantly with a 202 Accepted
-	c.JSON(http.StatusAccepted, gin.H{"status": "Notification event enqueued for dynamic routing"})
+	// 4. Respond instantly with a 202 Accepted, and return the RequestID so the client can trace it!
+	c.JSON(http.StatusAccepted, gin.H{
+		"status": "Notification event enqueued for dynamic routing",
+		"request_id": requestID,
+	})
 }

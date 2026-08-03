@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"text/template"
 	"time"
 
@@ -59,7 +59,10 @@ func (processor *ChannelProcessor) ProcessTask(ctx context.Context, t *asynq.Tas
 		return fmt.Errorf("json.Unmarshal failed: %v: %w", err, asynq.SkipRetry)
 	}
 
-	log.Printf("[%s CONSUMER] 📥 Pulled task for User: %s", processor.name, payload.UserID)
+	// STAGE 9: Bind the trace ID to this specific logger for the rest of the function!
+	logger := slog.With("request_id", payload.RequestID, "worker", processor.name)
+
+	logger.Info("Pulled task for User", "user_id", payload.UserID)
 
 	// 1. IDEMPOTENCY CHECK
 	delivery, err := processor.repo.GetDeliveryByID(ctx, payload.DeliveryID)
@@ -68,7 +71,7 @@ func (processor *ChannelProcessor) ProcessTask(ctx context.Context, t *asynq.Tas
 	}
 
 	if delivery.Status == "sent" {
-		log.Printf("[%s IDEMPOTENCY ✅] Delivery %s was already sent! Skipping.", processor.name, payload.DeliveryID)
+		logger.Info("Delivery was already sent! Skipping.", "delivery_id", payload.DeliveryID)
 		return nil
 	}
 
@@ -89,7 +92,7 @@ func (processor *ChannelProcessor) ProcessTask(ctx context.Context, t *asynq.Tas
 		}
 
 		if count > 2 {
-			log.Printf("[SMS GLOBAL RATE LIMIT ⚠️] Twilio capacity reached! Backing off...")
+			logger.Warn("Twilio capacity reached! Backing off...")
 			return fmt.Errorf("global SMS rate limit exceeded (2/sec)")
 		}
 	}
@@ -148,6 +151,6 @@ func (processor *ChannelProcessor) ProcessTask(ctx context.Context, t *asynq.Tas
 		return fmt.Errorf("failed to update status to sent: %w", err)
 	}
 
-	log.Printf("[%s CONSUMER] ✅ Successfully sent to %s and updated DB!", processor.name, contactInfo)
+	logger.Info("Successfully sent to contact and updated DB!", "contact", contactInfo)
 	return nil
 }

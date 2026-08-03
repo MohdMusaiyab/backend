@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 
 	"github.com/gin-gonic/gin"
@@ -24,9 +24,13 @@ import (
 )
 
 func main() {
+	// STAGE 9: Configure Global Structured JSON Logging
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+
 	// 1. Load Environment Variables
 	if err := godotenv.Load(); err != nil {
-		log.Println("Warning: No .env file found or error reading it.")
+		slog.Warn("No .env file found or error reading it.")
 	}
 
 	// 2. Setup PostgreSQL Connection
@@ -39,9 +43,10 @@ func main() {
 	
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
-		log.Fatalf("Critical Error: Failed to connect to database: %v", err)
+		slog.Error("Critical Error: Failed to connect to database", "error", err)
+		os.Exit(1)
 	}
-	log.Println("✅ Successfully connected to Postgres!")
+	slog.Info("Successfully connected to Postgres!")
 
 	// 3. Setup Redis Connection Details
 	redisAddr := os.Getenv("REDIS_ADDR")
@@ -103,7 +108,7 @@ func main() {
 					"sms":      5,  // ONLY 5 concurrent workers talking to slow/rate-limited Twilio!
 				},
 				ErrorHandler: asynq.ErrorHandlerFunc(func(ctx context.Context, task *asynq.Task, err error) {
-					log.Printf("[WORKER RETRY ⚠️] Task %s failed. Reason: %v", task.Type(), err)
+					slog.Error("Worker Retry. Task failed.", "task_type", task.Type(), "error", err)
 				}),
 			},
 		)
@@ -115,10 +120,11 @@ func main() {
 		mux.HandleFunc(worker.TypeSendEmail, emailProcessor.ProcessTask)
 		mux.HandleFunc(worker.TypeSendSMS, smsProcessor.ProcessTask)
 
-		log.Println("⚙️  Background Worker Pools started successfully! (Email: 40 | SMS: 5 | Router: 10)")
+		slog.Info("Background Worker Pools started successfully!", "email_workers", 40, "sms_workers", 5, "router_workers", 10)
 		
 		if err := workerServer.Run(mux); err != nil {
-			log.Fatalf("Worker server failed: %v", err)
+			slog.Error("Worker server failed", "error", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -142,8 +148,9 @@ func main() {
 		appPort = "8080"
 	}
 	
-	log.Printf("🚀 HTTP Server flying on port %s...", appPort)
+	slog.Info("HTTP Server flying...", "port", appPort)
 	if err := router.Run(":" + appPort); err != nil {
-		log.Fatalf("HTTP Server crashed: %v", err)
+		slog.Error("HTTP Server crashed", "error", err)
+		os.Exit(1)
 	}
 }

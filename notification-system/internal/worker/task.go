@@ -19,6 +19,7 @@ type EventNotificationRequestedPayload struct {
 	TemplateName    string
 	TemplateVersion string
 	Data            map[string]interface{}
+	RequestID       string // STAGE 9: The Tracing Baton!
 }
 
 // ChannelDeliveryPayload is used by the specific Email/SMS workers
@@ -28,16 +29,18 @@ type ChannelDeliveryPayload struct {
 	TemplateName    string
 	TemplateVersion string
 	Data            map[string]interface{}
+	RequestID       string // STAGE 9: The Tracing Baton!
 }
 
 // NewEventNotificationRequestedTask is created by the HTTP API Producer
-func NewEventNotificationRequestedTask(notificationID, userID, templateName, templateVersion string, data map[string]interface{}) (*asynq.Task, error) {
+func NewEventNotificationRequestedTask(notificationID, userID, templateName, templateVersion string, data map[string]interface{}, requestID string) (*asynq.Task, error) {
 	payload, err := json.Marshal(EventNotificationRequestedPayload{
 		NotificationID:  notificationID,
 		UserID:          userID,
 		TemplateName:    templateName,
 		TemplateVersion: templateVersion,
 		Data:            data,
+		RequestID:       requestID,
 	})
 	if err != nil {
 		return nil, err
@@ -46,13 +49,14 @@ func NewEventNotificationRequestedTask(notificationID, userID, templateName, tem
 }
 
 // NewSendEmailTask is created dynamically by the Router Worker
-func NewSendEmailTask(deliveryID, userID, templateName, templateVersion string, data map[string]interface{}) (*asynq.Task, error) {
+func NewSendEmailTask(deliveryID, userID, templateName, templateVersion string, data map[string]interface{}, requestID string) (*asynq.Task, error) {
 	payload, err := json.Marshal(ChannelDeliveryPayload{
 		DeliveryID:      deliveryID,
 		UserID:          userID,
 		TemplateName:    templateName,
 		TemplateVersion: templateVersion,
 		Data:            data,
+		RequestID:       requestID,
 	})
 	if err != nil {
 		return nil, err
@@ -61,13 +65,14 @@ func NewSendEmailTask(deliveryID, userID, templateName, templateVersion string, 
 }
 
 // NewSendSMSTask is created dynamically by the Router Worker
-func NewSendSMSTask(deliveryID, userID, templateName, templateVersion string, data map[string]interface{}) (*asynq.Task, error) {
+func NewSendSMSTask(deliveryID, userID, templateName, templateVersion string, data map[string]interface{}, requestID string) (*asynq.Task, error) {
 	payload, err := json.Marshal(ChannelDeliveryPayload{
 		DeliveryID:      deliveryID,
 		UserID:          userID,
 		TemplateName:    templateName,
 		TemplateVersion: templateVersion,
 		Data:            data,
+		RequestID:       requestID,
 	})
 	if err != nil {
 		return nil, err

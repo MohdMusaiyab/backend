@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 
 	"github.com/hibiken/asynq"
 	"github.com/mohdMusaiyab/notification-system/internal/model"
@@ -48,7 +48,10 @@ func (p *RouterProcessor) ProcessEventNotificationRequested(ctx context.Context,
 		return fmt.Errorf("json.Unmarshal failed: %v: %w", err, asynq.SkipRetry)
 	}
 
-	log.Printf("[ROUTER] 🔀 Pulled Event for User: %s. Analyzing routing preferences...", payload.UserID)
+	// STAGE 9: Bind the trace ID to this specific logger!
+	logger := slog.With("request_id", payload.RequestID, "worker", "router")
+
+	logger.Info("Pulled Event for User. Analyzing routing preferences...", "user_id", payload.UserID)
 
 	// Fetch the parent notification
 	notif, err := p.repo.GetByID(ctx, payload.NotificationID)
@@ -58,7 +61,7 @@ func (p *RouterProcessor) ProcessEventNotificationRequested(ctx context.Context,
 
 	// 1. ROUTER IDEMPOTENCY CHECK
 	if len(notif.Deliveries) > 0 {
-		log.Printf("[ROUTER IDEMPOTENCY ✅] Event %s already fanned out! Skipping.", payload.NotificationID)
+		logger.Info("Event already fanned out! Skipping.", "notification_id", payload.NotificationID)
 		return nil
 	}
 
@@ -84,7 +87,7 @@ func (p *RouterProcessor) ProcessEventNotificationRequested(ctx context.Context,
 
 	// If the user turned EVERYTHING off, we just mark it as suppressed and gracefully stop.
 	if len(activeChannels) == 0 {
-		log.Printf("[ROUTER 🛑] User %s opted out of all channels. Suppressing notification.", payload.UserID)
+		logger.Info("User opted out of all channels. Suppressing notification.", "user_id", payload.UserID)
 		p.repo.UpdateStatus(ctx, payload.NotificationID, "suppressed_by_preference")
 		return nil
 	}
@@ -111,10 +114,10 @@ func (p *RouterProcessor) ProcessEventNotificationRequested(ctx context.Context,
 
 		// We pass the incredibly rich payload straight down to the individual channel workers!
 		if delivery.Channel == "email" {
-			task, err = NewSendEmailTask(delivery.ID.String(), payload.UserID, payload.TemplateName, payload.TemplateVersion, payload.Data)
+			task, err = NewSendEmailTask(delivery.ID.String(), payload.UserID, payload.TemplateName, payload.TemplateVersion, payload.Data, payload.RequestID)
 			queueName = "email"
 		} else if delivery.Channel == "sms" {
-			task, err = NewSendSMSTask(delivery.ID.String(), payload.UserID, payload.TemplateName, payload.TemplateVersion, payload.Data)
+			task, err = NewSendSMSTask(delivery.ID.String(), payload.UserID, payload.TemplateName, payload.TemplateVersion, payload.Data, payload.RequestID)
 			queueName = "sms"
 		}
 
@@ -127,7 +130,7 @@ func (p *RouterProcessor) ProcessEventNotificationRequested(ctx context.Context,
 			return fmt.Errorf("failed to enqueue task for %s: %w", delivery.Channel, err)
 		}
 		
-		log.Printf("[ROUTER] ➡️  Routed task to '%s' queue (DeliveryID: %s)", queueName, delivery.ID)
+		logger.Info("Routed task to queue", "queue", queueName, "delivery_id", delivery.ID)
 	}
 
 	// 6. Mark the parent event as fully routed
@@ -135,6 +138,6 @@ func (p *RouterProcessor) ProcessEventNotificationRequested(ctx context.Context,
 		return fmt.Errorf("failed to update parent status: %w", err)
 	}
 
-	log.Printf("[ROUTER] ✅ Successfully fanned out Event %s to %d isolated queues!", payload.NotificationID, len(activeChannels))
+	logger.Info("Successfully fanned out Event to isolated queues!", "notification_id", payload.NotificationID, "queues_count", len(activeChannels))
 	return nil
 }
