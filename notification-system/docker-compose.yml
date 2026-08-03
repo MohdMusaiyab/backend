@@ -29,5 +29,31 @@ services:
       - redis
     restart: unless-stopped
 
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: notification_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    # extra_hosts is CRITICAL for Linux. It allows the Docker container to scrape our Go app running directly on localhost!
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: notification_grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  prometheus_data:
+  grafana_data:

@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 15s # By default, scrape targets every 15 seconds.
+
+scrape_configs:
+  - job_name: 'notification_system'
+    # We will expose our Go metrics on port 8080 at the /metrics endpoint
+    # host.docker.internal allows Prometheus (inside Docker) to talk to our Go app (outside Docker on localhost)
+    static_configs:
+      - targets: ['host.docker.internal:8080']

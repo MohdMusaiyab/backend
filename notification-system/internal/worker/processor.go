@@ -12,6 +12,7 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/mohdMusaiyab/notification-system/internal/provider"
 	"github.com/mohdMusaiyab/notification-system/internal/repository"
+	"github.com/mohdMusaiyab/notification-system/internal/telemetry"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -34,7 +35,24 @@ func NewChannelProcessor(name string, repo repository.NotificationRepository, se
 }
 
 // ProcessTask handles the specific delivery job from the isolated queue
-func (processor *ChannelProcessor) ProcessTask(ctx context.Context, t *asynq.Task) error {
+func (processor *ChannelProcessor) ProcessTask(ctx context.Context, t *asynq.Task) (err error) {
+	// STAGE 9: Telemetry Timers
+	startTime := time.Now()
+	
+	// Defer block mathematically guarantees we record metrics even if a panic happens or we return early
+	defer func() {
+		status := "success"
+		if err != nil {
+			status = "failed"
+		}
+		
+		duration := time.Since(startTime).Seconds()
+		// 1. Record exact latency
+		telemetry.NotificationLatency.WithLabelValues(processor.name).Observe(duration)
+		// 2. Increment success/fail counter
+		telemetry.NotificationsProcessed.WithLabelValues(processor.name, status).Inc()
+	}()
+
 	var payload ChannelDeliveryPayload
 
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {

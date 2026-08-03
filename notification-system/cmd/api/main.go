@@ -20,6 +20,7 @@ import (
 	"github.com/mohdMusaiyab/notification-system/internal/worker"
 	
 	"github.com/redis/go-redis/v9"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
@@ -131,6 +132,10 @@ func main() {
 	
 	// Apply the middleware strictly to the notification endpoint
 	router.POST("/notification", middleware.RateLimit(limiter), notificationHandler.HandleSendNotification)
+
+	// STAGE 9: Expose the Prometheus metrics endpoint!
+	// Prometheus will automatically ping this URL every 15 seconds to scrape our system's health.
+	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	appPort := os.Getenv("APP_PORT")
 	if appPort == "" {

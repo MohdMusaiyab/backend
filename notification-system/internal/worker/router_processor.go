@@ -9,6 +9,8 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/mohdMusaiyab/notification-system/internal/model"
 	"github.com/mohdMusaiyab/notification-system/internal/repository"
+	"github.com/mohdMusaiyab/notification-system/internal/telemetry"
+	"time"
 )
 
 // RouterProcessor is the intelligent middleman. It listens for events, checks user preferences, and fans them out.
@@ -26,7 +28,21 @@ func NewRouterProcessor(repo repository.NotificationRepository, queueClient *asy
 }
 
 // ProcessEventNotificationRequested grabs the generic event and fans it out intelligently!
-func (p *RouterProcessor) ProcessEventNotificationRequested(ctx context.Context, t *asynq.Task) error {
+func (p *RouterProcessor) ProcessEventNotificationRequested(ctx context.Context, t *asynq.Task) (err error) {
+	// STAGE 9: Telemetry Timers
+	startTime := time.Now()
+	
+	defer func() {
+		status := "success"
+		if err != nil {
+			status = "failed"
+		}
+		
+		duration := time.Since(startTime).Seconds()
+		telemetry.NotificationLatency.WithLabelValues("Router").Observe(duration)
+		telemetry.NotificationsProcessed.WithLabelValues("Router", status).Inc()
+	}()
+
 	var payload EventNotificationRequestedPayload
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
 		return fmt.Errorf("json.Unmarshal failed: %v: %w", err, asynq.SkipRetry)
