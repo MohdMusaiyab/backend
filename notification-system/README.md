@@ -109,6 +109,18 @@ I implemented "Time-Travel Deliveries" using Broker-Native Delay mechanisms, all
 
 ---
 
-## Next Steps (Stage 9: Observability)
-- **The Telemetry Stack:** Setting up Prometheus and Grafana to visualize queue depth, delivery success rates, and latency percentiles.
-- **Structured Logging:** Transitioning from simple text logs to structured JSON logs with threaded Request IDs to track a single notification's journey across the entire distributed system.
+## Stage 9: Observability (Completed)
+
+### What I Built
+I transformed the system from a "blind box" into a fully observable, production-ready architecture by implementing industry-standard metrics, structured JSON logging, and end-to-end distributed tracing.
+
+1. **The Telemetry Stack:** Added Prometheus and Grafana via Docker Compose. Exposed a `/metrics` endpoint in the Go API using `promhttp` to allow Prometheus to actively scrape the system's health every 15 seconds.
+2. **Prometheus Instrumentation:** Injected `prometheus/client_golang` into the background workers. I utilized Go's `defer` and Named Return Variables to guarantee the system records absolute `notification_processed_total` counters and exact `notification_processing_duration_seconds` latency histograms, even if a worker panics.
+3. **Structured JSON Logging & Tracing:** Stripped out standard text logs and replaced them with Go's modern `log/slog`. Implemented "Poor Man's Tracing" by generating an `X-Request-ID` at the API Gateway, serializing it into the Redis Queue payload, and binding it to the worker loggers (`slog.With`). This guarantees every single log printed globally contains the exact trace ID of the user's request.
+
+---
+
+## Next Steps (Stage 10: Microservices & The Architecture Split)
+- **Breaking the Monolith:** Right now, the API Producer, Router, and all Channel Workers run inside a single `main.go` binary. The absolute final step in distributed systems is to physically break them apart into separate, independently scalable Go binaries (e.g., `cmd/api`, `cmd/worker-email`).
+- **Containerization:** Writing highly optimized, multi-stage `Dockerfiles` for each specific microservice.
+- **Independent Scaling:** Proving the architecture works by deploying 1 API Gateway node, but spinning up 10 isolated Email Worker nodes, demonstrating true, horizontal cloud scalability!
