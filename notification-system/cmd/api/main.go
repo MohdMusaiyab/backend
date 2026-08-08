@@ -17,6 +17,7 @@ import (
 	"github.com/mohdMusaiyab/notification-system/internal/provider"
 	"github.com/mohdMusaiyab/notification-system/internal/repository"
 	"github.com/mohdMusaiyab/notification-system/internal/service"
+	"github.com/mohdMusaiyab/notification-system/internal/telemetry"
 	"github.com/mohdMusaiyab/notification-system/internal/worker"
 	
 	"github.com/redis/go-redis/v9"
@@ -24,8 +25,14 @@ import (
 )
 
 func main() {
+	// STAGE 9.5: Initialize the WebSocket Hub for Live Log Streaming!
+	wsHub := telemetry.NewHub()
+	go wsHub.Run()
+
 	// STAGE 9: Configure Global Structured JSON Logging
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	// Instead of writing strictly to os.Stdout, we write to our custom HubWriter!
+	hubWriter := telemetry.NewHubWriter(wsHub)
+	logger := slog.New(slog.NewJSONHandler(hubWriter, nil))
 	slog.SetDefault(logger)
 
 	// 1. Load Environment Variables
@@ -142,6 +149,11 @@ func main() {
 	// STAGE 9: Expose the Prometheus metrics endpoint!
 	// Prometheus will automatically ping this URL every 15 seconds to scrape our system's health.
 	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
+	// STAGE 9.5: Expose the WebSocket endpoint for the Frontend Dashboard!
+	router.GET("/ws", func(c *gin.Context) {
+		telemetry.ServeWs(wsHub, c.Writer, c.Request)
+	})
 
 	appPort := os.Getenv("APP_PORT")
 	if appPort == "" {
