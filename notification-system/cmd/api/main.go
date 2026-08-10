@@ -140,6 +140,19 @@ func main() {
 	// =========================================================================
 	router := gin.Default()
 	
+	// STAGE 9.5: Allow CORS for the Next.js Dashboard!
+	router.Use(func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Request-ID, Idempotency-Key")
+		
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+		c.Next()
+	})
+	
 	// Create our API Gateway Rate Limiter (5 requests per second, burst of 10)
 	limiter := middleware.NewIPRateLimiter(5, 10)
 	
