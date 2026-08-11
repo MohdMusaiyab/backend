@@ -2,17 +2,7 @@
 import { useEffect, useState } from "react";
 import ControlPanel from "@/components/ControlPanel";
 import LiveTerminal from "@/components/LiveTerminal";
-import ArchitectureGraph from "@/components/ArchitectureGraph";
-
-interface Log {
-  time?: string;
-  level?: string;
-  msg?: string;
-  worker?: string;
-  queue?: string;
-  send_at?: string;
-  request_id?: string;
-}
+import ArchitectureGraph, { Log } from "@/components/ArchitectureGraph";
 
 export default function Home() {
   const [logs, setLogs] = useState<Log[]>([]);
