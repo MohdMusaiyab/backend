@@ -4,6 +4,35 @@ A highly scalable, production-grade notification system built in Go. I am constr
 
 ---
 
+## 🚀 Live Observability Dashboard & Quick Start
+
+To visually track the entire distributed system in real-time, I built a custom **Next.js Observability Dashboard**. It uses WebSockets to hook directly into the Go backend's telemetry, rendering a live architectural heatmap and isolating concurrent requests into dedicated terminal swimlanes.
+
+### How to Run the Full Stack
+
+1. **Start the Infrastructure & Metrics (Docker)**
+   ```bash
+   docker-compose up -d
+   ```
+2. **Start the Go Backend (API + Workers)**
+   ```bash
+   go run cmd/api/main.go
+   ```
+3. **Start the Next.js Dashboard**
+   ```bash
+   cd dashboard
+   npm install
+   npm run dev
+   ```
+
+### Service Access Points
+*   **Custom Observability UI:** [http://localhost:3001](http://localhost:3001) *(Trigger events and watch the live heatmap!)*
+*   **Grafana Dashboards:** [http://localhost:3000](http://localhost:3000) *(Long-term statistical metrics)*
+*   **Prometheus:** [http://localhost:9090](http://localhost:9090) *(Raw metric scraping)*
+*   **Go API Gateway:** `http://localhost:8080`
+
+---
+
 ## Stage 1: The Synchronous Foundation (Completed)
 
 ### What I Built
