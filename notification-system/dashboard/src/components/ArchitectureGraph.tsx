@@ -1,13 +1,11 @@
 "use client";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Server, Database, Route, Mail, MessageSquare, LucideProps, AlertTriangle, Clock
+  Server, Database, Route, Mail, MessageSquare, LucideProps, AlertTriangle, Layers
 } from "lucide-react";
 import {
-  useEffect, useRef, ForwardRefExoticComponent, RefAttributes, useReducer,
+  useEffect, ForwardRefExoticComponent, RefAttributes, useState, useRef
 } from "react";
-
-// ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface Log {
   time?: string;
@@ -20,54 +18,17 @@ export interface Log {
   error?: string;
 }
 
-type NodeStatus = "idle" | "active" | "scheduled" | "success" | "failed";
+// ─── State Engine ─────────────────────────────────────────────────────────────
 
-interface SystemState {
-  api: NodeStatus;
-  redis: NodeStatus;
-  router: NodeStatus;
-  email: NodeStatus;
-  sms: NodeStatus;
-  dlq: NodeStatus;
-  scheduledUntil: string | null; // ISO timestamp
-  activeRequestId: string | null;
-  lastEventType: string | null;
-}
+type NodeLocation = "api" | "redis" | "router" | "email" | "sms" | "dlq";
+type ReqStatus = "active" | "held" | "error" | "done";
 
-type SystemAction =
-  | { type: "RESET" }
-  | { type: "SET"; node: keyof Omit<SystemState, "scheduledUntil" | "activeRequestId" | "lastEventType">; status: NodeStatus }
-  | { type: "SCHEDULE"; until: string; requestId: string }
-  | { type: "ACTIVATE"; node: keyof Omit<SystemState, "scheduledUntil" | "activeRequestId" | "lastEventType">; requestId?: string }
-  | { type: "SUCCESS"; node: keyof Omit<SystemState, "scheduledUntil" | "activeRequestId" | "lastEventType"> }
-  | { type: "FAIL"; requestId?: string }
-  | { type: "DELIVER_SCHEDULED" };
-
-const initialState: SystemState = {
-  api: "idle", redis: "idle", router: "idle",
-  email: "idle", sms: "idle", dlq: "idle",
-  scheduledUntil: null, activeRequestId: null, lastEventType: null,
-};
-
-function systemReducer(state: SystemState, action: SystemAction): SystemState {
-  switch (action.type) {
-    case "RESET":
-      return { ...initialState };
-    case "SET":
-      return { ...state, [action.node]: action.status };
-    case "SCHEDULE":
-      return { ...state, api: "success", redis: "scheduled", scheduledUntil: action.until, activeRequestId: action.requestId, lastEventType: "scheduled" };
-    case "ACTIVATE":
-      return { ...state, [action.node]: "active", activeRequestId: action.requestId ?? state.activeRequestId };
-    case "SUCCESS":
-      return { ...state, [action.node]: "success", lastEventType: "success" };
-    case "FAIL":
-      return { ...state, dlq: "failed", email: state.email === "active" ? "failed" : state.email, sms: state.sms === "active" ? "failed" : state.sms, lastEventType: "failed" };
-    case "DELIVER_SCHEDULED":
-      return { ...state, redis: "active", scheduledUntil: null };
-    default:
-      return state;
-  }
+interface RequestTracker {
+  id: string;
+  location: NodeLocation;
+  status: ReqStatus;
+  updatedAt: number;
+  sendAt?: string;
 }
 
 // ─── Sub-Components ───────────────────────────────────────────────────────────
@@ -76,70 +37,53 @@ interface NodeProps {
   id: string;
   label: string;
   icon: ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>;
-  status: NodeStatus;
-  badge?: string | null;
+  active: number;
+  held: number;
+  error: number;
 }
 
-const STATUS_COLORS: Record<NodeStatus, string> = {
-  idle: "rgba(255,255,255,0.04)",
-  active: "#22d3ee",
-  scheduled: "#f59e0b",
-  success: "#10b981",
-  failed: "#ef4444",
-};
+function GraphNode({ label, icon: Icon, active, held, error }: NodeProps) {
+  const isHeld = held > 0;
+  const isError = error > 0;
+  const isActive = active > 0;
+  
+  let statusColor = "rgba(255,255,255,0.04)";
+  let glow = "0 0 0px rgba(0,0,0,0)";
+  let textColor = "#525252";
+  let scale = 1;
 
-const STATUS_GLOWS: Record<NodeStatus, string> = {
-  idle: "0 0 0px rgba(0,0,0,0)",
-  active: "0 0 22px #22d3ee60",
-  scheduled: "0 0 22px #f59e0b60",
-  success: "0 0 22px #10b98160",
-  failed: "0 0 22px #ef444460",
-};
+  if (isError) {
+    statusColor = "#ef4444"; glow = "0 0 25px #ef444480"; textColor = "#ef4444"; scale = 1.1;
+  } else if (isHeld) {
+    statusColor = "#f59e0b"; glow = "0 0 25px #f59e0b80"; textColor = "#f59e0b"; scale = 1.05;
+  } else if (isActive) {
+    statusColor = "#22d3ee"; glow = "0 0 25px #22d3ee80"; textColor = "#22d3ee"; scale = 1.1;
+  }
 
-const STATUS_TEXT: Record<NodeStatus, string> = {
-  idle: "#525252",
-  active: "#22d3ee",
-  scheduled: "#f59e0b",
-  success: "#10b981",
-  failed: "#ef4444",
-};
+  const total = active + held + error;
 
-const BADGE_STYLES: Record<string, string> = {
-  HELD: "bg-amber-500/20 text-amber-400 border border-amber-500/40",
-  FAILED: "bg-red-500/20 text-red-400 border border-red-500/40",
-  SENT: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40",
-};
-
-function GraphNode({ label, icon: Icon, status, badge }: NodeProps) {
   return (
     <div className="flex flex-col items-center relative">
       <motion.div
-        animate={{
-          scale: status === "active" ? 1.12 : status === "scheduled" ? [1, 1.05, 1] : 1,
-          borderColor: STATUS_COLORS[status],
-          boxShadow: STATUS_GLOWS[status],
-        }}
-        transition={{
-          scale: status === "scheduled" ? { repeat: Infinity, duration: 1.2 } : { duration: 0.3 },
-          borderColor: { duration: 0.3 },
-          boxShadow: { duration: 0.3 },
-        }}
+        animate={{ scale, borderColor: statusColor, boxShadow: glow }}
+        transition={{ duration: 0.3 }}
         className="w-16 h-16 rounded-2xl bg-neutral-950 border-2 flex items-center justify-center relative z-10"
       >
-        <Icon className="w-7 h-7" style={{ color: STATUS_TEXT[status] }} />
+        <Icon className="w-7 h-7 transition-colors duration-300" style={{ color: textColor }} />
       </motion.div>
 
       <AnimatePresence>
-        {badge && (
-          <motion.span
-            key={badge}
-            initial={{ opacity: 0, y: -6, scale: 0.8 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.8 }}
-            className={`absolute -top-5 text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider ${BADGE_STYLES[badge] ?? "bg-white/10 text-white/50"}`}
+        {total > 0 && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0 }}
+            className={`absolute -top-3 -right-2 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold border-2 border-neutral-900 z-20 ${
+              isError ? "bg-red-500 text-white" : isHeld ? "bg-amber-500 text-white" : "bg-cyan-500 text-white"
+            }`}
           >
-            {badge}
-          </motion.span>
+            {total}
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -148,29 +92,18 @@ function GraphNode({ label, icon: Icon, status, badge }: NodeProps) {
   );
 }
 
-interface FlowLineProps {
-  active: boolean;
-  color: string;
-  vertical?: boolean;
-}
-
-function FlowLine({ active, color, vertical = false }: FlowLineProps) {
+function FlowLine({ active, color }: { active: boolean; color: string }) {
   return (
-    <div className={`${vertical ? "h-full w-px" : "flex-1 h-px"} bg-white/5 relative overflow-hidden mx-2`}>
+    <div className="flex-1 h-px bg-white/5 relative overflow-hidden mx-2">
       <AnimatePresence>
         {active && (
           <motion.div
-            key="pulse"
-            initial={vertical ? { y: "-100%" } : { x: "-100%" }}
-            animate={vertical ? { y: "100%" } : { x: "100%" }}
+            initial={{ x: "-100%" }}
+            animate={{ x: "100%" }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.55, ease: "linear" }}
+            transition={{ duration: 0.8, ease: "linear", repeat: Infinity }}
             className="absolute inset-0 w-full h-full"
-            style={{
-              background: vertical
-                ? `linear-gradient(to bottom, transparent, ${color}, transparent)`
-                : `linear-gradient(to right, transparent, ${color}, transparent)`,
-            }}
+            style={{ background: `linear-gradient(to right, transparent, ${color}, transparent)` }}
           />
         )}
       </AnimatePresence>
@@ -181,67 +114,88 @@ function FlowLine({ active, color, vertical = false }: FlowLineProps) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function ArchitectureGraph({ logs }: { logs: Log[] }) {
-  const [sys, dispatch] = useReducer(systemReducer, initialState);
-  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [requests, setRequests] = useState<Record<string, RequestTracker>>({});
+  const [nowMs, setNowMs] = useState(0);
   const prevLogLen = useRef(0);
+
+  // Force re-render every second to clear stale/done requests naturally
+  useEffect(() => {
+    const t = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
 
   useEffect(() => {
     if (logs.length <= prevLogLen.current) return;
     const newLogs = logs.slice(prevLogLen.current);
     prevLogLen.current = logs.length;
 
-    for (const log of newLogs) {
-      // ── Scheduled (Time-Travel) ──────────────────
-      if (log.msg?.includes("Time-Travel engaged") && log.send_at) {
-        dispatch({ type: "SCHEDULE", until: log.send_at, requestId: log.request_id ?? "" });
-        continue;
-      }
+    setRequests(prev => {
+      const next = { ...prev };
+      
+      for (const log of newLogs) {
+        if (!log.request_id) continue;
+        const id = log.request_id;
+        const req = next[id] || { id, location: "api", status: "active", updatedAt: Date.now() };
+        req.updatedAt = Date.now();
 
-      // ── Enqueued (instant) ──────────────────────
-      if (log.msg?.includes("Enqueued task")) {
-        dispatch({ type: "ACTIVATE", node: "api", requestId: log.request_id });
-        dispatch({ type: "SUCCESS", node: "api" });
-        dispatch({ type: "ACTIVATE", node: "redis" });
-        continue;
+        // ── State Transitions ──
+        if (log.msg?.includes("Enqueued task")) {
+          req.location = "redis";
+          req.status = log.send_at ? "held" : "active";
+          if (log.send_at) req.sendAt = log.send_at;
+        } else if (log.msg?.includes("Time-Travel engaged")) {
+          req.location = "redis";
+          req.status = "held";
+          if (log.send_at) req.sendAt = log.send_at;
+        } else if (log.worker === "router" && log.msg?.includes("Pulled Event")) {
+          req.location = "router";
+          req.status = "active";
+        } else if (log.worker === "router" && log.msg?.includes("Routed task")) {
+          req.location = log.queue === "email" ? "email" : "sms";
+          req.status = "active";
+        } else if (log.msg?.includes("Successfully sent")) {
+          req.status = "done";
+        } else if (log.level === "ERROR") {
+          req.location = "dlq";
+          req.status = "error";
+        }
+        
+        next[id] = req;
       }
+      return next;
+    });
+  }, [logs]);
 
-      // ── Router picks up (scheduled task delivered) ─
-      if (log.worker === "router" && log.msg?.includes("Pulled Event")) {
-        if (sys.scheduledUntil) dispatch({ type: "DELIVER_SCHEDULED" });
-        dispatch({ type: "ACTIVATE", node: "router" });
-        dispatch({ type: "SUCCESS", node: "redis" });
-        continue;
-      }
+  // ── Compute Heatmap Load ──
+  const stats = {
+    api: { active: 0, held: 0, error: 0 },
+    redis: { active: 0, held: 0, error: 0 },
+    router: { active: 0, held: 0, error: 0 },
+    email: { active: 0, held: 0, error: 0 },
+    sms: { active: 0, held: 0, error: 0 },
+    dlq: { active: 0, held: 0, error: 0 },
+  };
 
-      // ── Router fans out ─────────────────────────
-      if (log.worker === "router" && log.msg?.includes("Routed task")) {
-        dispatch({ type: "SUCCESS", node: "router" });
-        if (log.queue === "email") dispatch({ type: "ACTIVATE", node: "email" });
-        if (log.queue === "sms") dispatch({ type: "ACTIVATE", node: "sms" });
-        continue;
-      }
+  let totalActive = 0;
 
-      // ── Delivery success ────────────────────────
-      if (log.msg?.includes("Successfully sent")) {
-        if (log.worker === "Email") dispatch({ type: "SUCCESS", node: "email" });
-        if (log.worker === "SMS") dispatch({ type: "SUCCESS", node: "sms" });
-        continue;
-      }
+  Object.values(requests).forEach(req => {
+    if (req.status === "done") return; // Dropped instantly from visualization
+    
+    // Auto-expire requests if we missed the success log (e.g. 5s for active, longer for held)
+    const isStale = req.status === "active" && (nowMs - req.updatedAt > 6000);
+    if (isStale) return;
 
-      // ── Error → DLQ ────────────────────────────
-      if (log.level === "ERROR") {
-        dispatch({ type: "FAIL", requestId: log.request_id });
-        continue;
-      }
+    // Check if a held task is still held
+    if (req.status === "held" && req.sendAt) {
+       const fireTime = new Date(req.sendAt).getTime();
+       if (nowMs > fireTime + 2000) return; // Expire 2s after it should have fired if router didn't pick it up
     }
 
-    // Auto-reset to idle after 6s of silence
-    if (resetTimer.current) clearTimeout(resetTimer.current);
-    resetTimer.current = setTimeout(() => dispatch({ type: "RESET" }), 6000);
-  }, [logs, sys.scheduledUntil]);
+    stats[req.location][req.status]++;
+    totalActive++;
+  });
 
-  const isFlowing = (from: NodeStatus, to: NodeStatus) =>
-    (from === "active" || from === "success") && to === "active";
+  const hasFlow = (loc: keyof typeof stats) => stats[loc].active > 0;
 
   return (
     <div className="bg-neutral-900/50 border border-white/10 rounded-2xl p-8 relative overflow-hidden backdrop-blur-md">
@@ -252,58 +206,33 @@ export default function ArchitectureGraph({ logs }: { logs: Log[] }) {
       <div className="relative z-10">
         <div className="flex items-center justify-between mb-10">
           <h2 className="text-xs font-bold text-neutral-500 uppercase tracking-widest flex items-center">
-            <span className="w-2 h-2 rounded-full bg-cyan-500 mr-2 animate-pulse" />
-            Live Distributed Architecture
+            <Layers className="w-4 h-4 text-cyan-500 mr-2" />
+            Distributed Heatmap
           </h2>
-          {sys.scheduledUntil && (
-            <div className="flex items-center text-amber-400 text-xs bg-amber-500/10 border border-amber-500/30 px-3 py-1 rounded-full">
-              <Clock className="w-3 h-3 mr-1.5" />
-              Task held in ZSET until {new Date(sys.scheduledUntil).toLocaleTimeString()}
-            </div>
-          )}
-          {sys.lastEventType === "failed" && (
-            <div className="flex items-center text-red-400 text-xs bg-red-500/10 border border-red-500/30 px-3 py-1 rounded-full">
-              <AlertTriangle className="w-3 h-3 mr-1.5" />
-              Task failed → routed to Dead Letter Queue
+          {totalActive > 0 && (
+            <div className="flex items-center text-cyan-400 text-xs bg-cyan-500/10 border border-cyan-500/30 px-3 py-1 rounded-full animate-pulse">
+              Tracking {totalActive} concurrent request{totalActive > 1 ? 's' : ''} in flight
             </div>
           )}
         </div>
 
-        {/* Main Flow */}
         <div className="flex items-center justify-between px-2">
-          <GraphNode id="api" label="API Gateway" icon={Server} status={sys.api} />
-          <FlowLine active={isFlowing(sys.api, sys.redis) || sys.redis === "active"} color="#f43f5e" />
-          <GraphNode
-            id="redis"
-            label="Redis Queue"
-            icon={Database}
-            status={sys.redis}
-            badge={sys.redis === "scheduled" ? "HELD" : sys.redis === "success" ? "SENT" : null}
-          />
-          <FlowLine active={isFlowing(sys.redis, sys.router) || sys.router === "active"} color="#a855f7" />
-          <GraphNode id="router" label="Router Worker" icon={Route} status={sys.router} />
+          <GraphNode id="api" label="API Gateway" icon={Server} {...stats.api} />
+          <FlowLine active={hasFlow("api") || hasFlow("redis")} color="#22d3ee" />
+          
+          <GraphNode id="redis" label="Redis Queue" icon={Database} {...stats.redis} />
+          <FlowLine active={hasFlow("redis") || hasFlow("router")} color="#a855f7" />
+          
+          <GraphNode id="router" label="Router Worker" icon={Route} {...stats.router} />
 
-          {/* Fan-Out Lines */}
           <div className="flex-1 flex flex-col justify-center h-24 mx-2 gap-8">
-            <FlowLine active={isFlowing(sys.router, sys.email) || sys.email === "active"} color="#10b981" />
-            <FlowLine active={isFlowing(sys.router, sys.sms) || sys.sms === "active"} color="#3b82f6" />
+            <FlowLine active={hasFlow("router") || hasFlow("email")} color="#10b981" />
+            <FlowLine active={hasFlow("router") || hasFlow("sms")} color="#3b82f6" />
           </div>
 
           <div className="flex flex-col gap-8">
-            <GraphNode
-              id="email"
-              label="Email Node"
-              icon={Mail}
-              status={sys.email}
-              badge={sys.email === "success" ? "SENT" : sys.email === "failed" ? "FAILED" : null}
-            />
-            <GraphNode
-              id="sms"
-              label="SMS Node"
-              icon={MessageSquare}
-              status={sys.sms}
-              badge={sys.sms === "success" ? "SENT" : sys.sms === "failed" ? "FAILED" : null}
-            />
+            <GraphNode id="email" label="Email Node" icon={Mail} {...stats.email} />
+            <GraphNode id="sms" label="SMS Node" icon={MessageSquare} {...stats.sms} />
           </div>
         </div>
 
@@ -311,13 +240,7 @@ export default function ArchitectureGraph({ logs }: { logs: Log[] }) {
         <div className="mt-8 flex items-center justify-end px-2">
           <div className="flex-1 h-px border-t border-dashed border-red-500/20 mx-2" />
           <div className="text-[10px] text-red-500/50 uppercase tracking-widest mr-4">Failure Path</div>
-          <GraphNode
-            id="dlq"
-            label="Dead Letter Queue"
-            icon={AlertTriangle}
-            status={sys.dlq}
-            badge={sys.dlq === "failed" ? "FAILED" : null}
-          />
+          <GraphNode id="dlq" label="Dead Letter Queue" icon={AlertTriangle} {...stats.dlq} />
         </div>
       </div>
     </div>
