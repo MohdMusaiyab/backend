@@ -149,7 +149,16 @@ I transformed the system from a "blind box" into a fully observable, production-
 
 ---
 
-## Next Steps (Stage 10: Microservices & The Architecture Split)
-- **Breaking the Monolith:** Right now, the API Producer, Router, and all Channel Workers run inside a single `main.go` binary. The absolute final step in distributed systems is to physically break them apart into separate, independently scalable Go binaries (e.g., `cmd/api`, `cmd/worker-email`).
-- **Containerization:** Writing highly optimized, multi-stage `Dockerfiles` for each specific microservice.
-- **Independent Scaling:** Proving the architecture works by deploying 1 API Gateway node, but spinning up 10 isolated Email Worker nodes, demonstrating true, horizontal cloud scalability!
+## Stage 10: Microservices & Distributed Telemetry (Completed)
+
+### What I Built
+I executed a physical architecture split, transforming the system from a single Go binary (Monolith) into a fully distributed microservice architecture. 
+
+1. **Breaking the Monolith:** I shattered the `main.go` file into four completely isolated entry points: `cmd/api`, `cmd/worker-router`, `cmd/worker-email`, and `cmd/worker-sms`. 
+2. **Containerization & Orchestration:** I authored a dynamic, Multi-Stage `Dockerfile` capable of building any of the four microservices on demand. Using `docker-compose.yml`, the infrastructure is now orchestrated so I can independently scale workers (e.g., running `docker compose up --scale worker-email=5` to spin up 5 concurrent email nodes to chew through backlogs).
+3. **Centralized Redis Logging (The Bridge):** Because the workers are now physically isolated Linux containers, they could no longer write their logs directly into the API's WebSocket memory space. I solved this by engineering a custom `RedisPubSubWriter`. Every worker now publishes its JSON logs to a `global_telemetry` Redis channel. The API Gateway subscribes to this channel and pipes the distributed logs straight back into the WebSocket, keeping the Next.js Dashboard perfectly synced!
+
+### The Benefits
+- **Fault Isolation:** If an SMS worker crashes due to an out-of-memory error from a bad dependency, it only kills its specific Docker container. The API Gateway and Email workers continue running flawlessly with zero downtime.
+- **Asymmetric Scaling:** I no longer waste CPU/RAM spinning up unnecessary API servers just to get more background workers. I can dynamically assign computing resources strictly to the queues that are backlogged.
+- **True Observability:** The centralized logging proves that no matter how many nodes are spun up horizontally across a cloud cluster, telemetry can always be securely routed back to a central observability hub in real-time.
