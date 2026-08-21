@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 
@@ -14,16 +15,14 @@ import (
 
 	"github.com/mohdMusaiyab/notification-system/internal/provider"
 	"github.com/mohdMusaiyab/notification-system/internal/repository"
+	"github.com/mohdMusaiyab/notification-system/internal/telemetry"
 	"github.com/mohdMusaiyab/notification-system/internal/worker"
 )
 
 // STAGE 10: SMS Worker
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	slog.SetDefault(logger)
-
 	if err := godotenv.Load(); err != nil {
-		slog.Warn("No .env file found or error reading it.")
+		// Silent load error
 	}
 
 	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable TimeZone=UTC",
@@ -46,6 +45,12 @@ func main() {
 	
 	rawRedisClient := redis.NewClient(&redis.Options{Addr: redisAddr})
 	defer rawRedisClient.Close()
+	
+	// STAGE 10.5: Centralized Logging Publisher
+	redisWriter := telemetry.NewRedisPubSubWriter(rawRedisClient, "global_telemetry")
+	multiWriter := io.MultiWriter(os.Stdout, redisWriter)
+	logger := slog.New(slog.NewJSONHandler(multiWriter, nil))
+	slog.SetDefault(logger)
 
 	repo := repository.NewNotificationRepository(db)
 	smsSender := provider.NewMockSMSSender()

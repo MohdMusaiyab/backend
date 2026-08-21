@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 
@@ -12,19 +13,30 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/mohdMusaiyab/notification-system/internal/repository"
+	"github.com/mohdMusaiyab/notification-system/internal/telemetry"
 	"github.com/mohdMusaiyab/notification-system/internal/worker"
+
+	"github.com/redis/go-redis/v9"
 )
 
 // STAGE 10: Router Worker
 // This binary strictly listens to the "critical" queue, reads user preferences,
 // and fans out the notification to the Email or SMS queues.
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	slog.SetDefault(logger)
-
 	if err := godotenv.Load(); err != nil {
-		slog.Warn("No .env file found or error reading it.")
+		// Silent load error
 	}
+
+	redisAddr := getEnv("REDIS_ADDR", "localhost:6379")
+	
+	// STAGE 10.5: Centralized Logging Publisher
+	rawRedisClient := redis.NewClient(&redis.Options{Addr: redisAddr})
+	defer rawRedisClient.Close()
+	redisWriter := telemetry.NewRedisPubSubWriter(rawRedisClient, "global_telemetry")
+	
+	multiWriter := io.MultiWriter(os.Stdout, redisWriter)
+	logger := slog.New(slog.NewJSONHandler(multiWriter, nil))
+	slog.SetDefault(logger)
 
 	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable TimeZone=UTC",
 		getEnv("DB_HOST", "localhost"),
@@ -41,7 +53,6 @@ func main() {
 	}
 	slog.Info("Router Worker successfully connected to Postgres!")
 
-	redisAddr := getEnv("REDIS_ADDR", "localhost:6379")
 	redisConnOpt := asynq.RedisClientOpt{Addr: redisAddr}
 
 	repo := repository.NewNotificationRepository(db)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"github.com/mohdMusaiyab/notification-system/internal/service"
 	"github.com/mohdMusaiyab/notification-system/internal/telemetry"
 	
+	"github.com/redis/go-redis/v9"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -28,6 +30,7 @@ func main() {
 	go wsHub.Run()
 
 	hubWriter := telemetry.NewHubWriter(wsHub)
+	// hubWriter natively handles both os.Stdout and WebSocket broadcasting
 	logger := slog.New(slog.NewJSONHandler(hubWriter, nil))
 	slog.SetDefault(logger)
 
@@ -52,6 +55,20 @@ func main() {
 
 	redisAddr := getEnv("REDIS_ADDR", "localhost:6379")
 	redisConnOpt := asynq.RedisClientOpt{Addr: redisAddr}
+	
+	rawRedisClient := redis.NewClient(&redis.Options{Addr: redisAddr})
+	defer rawRedisClient.Close()
+	
+	// STAGE 10.5: The Centralized Logging Bridge!
+	// Listen for any logs published by ANY worker container to Redis.
+	pubsub := rawRedisClient.Subscribe(context.Background(), "global_telemetry")
+	go func() {
+		defer pubsub.Close()
+		for msg := range pubsub.Channel() {
+			// Instantly broadcast the remote worker's log to our connected Next.js clients!
+			wsHub.BroadcastMessage([]byte(msg.Payload))
+		}
+	}()
 
 	repo := repository.NewNotificationRepository(db)
 	

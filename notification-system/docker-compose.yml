@@ -53,6 +53,74 @@ services:
       - prometheus
     restart: unless-stopped
 
+  # =========================================================
+  # STAGE 10: The Go Microservices
+  # =========================================================
+  api:
+    build:
+      context: .
+      args:
+        APP_NAME: api
+    container_name: notification_api
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=postgres
+      - REDIS_ADDR=redis:6379
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  worker-router:
+    build:
+      context: .
+      args:
+        APP_NAME: worker-router
+    # We intentionally DO NOT set container_name for workers. 
+    # This allows us to use the --scale flag to spin up multiple instances of the same worker!
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=postgres
+      - REDIS_ADDR=redis:6379
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  worker-email:
+    build:
+      context: .
+      args:
+        APP_NAME: worker-email
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=postgres
+      - REDIS_ADDR=redis:6379
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  worker-sms:
+    build:
+      context: .
+      args:
+        APP_NAME: worker-sms
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=postgres
+      - REDIS_ADDR=redis:6379
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
 volumes:
   pgdata:
   prometheus_data:

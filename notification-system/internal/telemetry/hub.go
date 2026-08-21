@@ -63,6 +63,15 @@ func (h *Hub) Run() {
 	}
 }
 
+// BroadcastMessage safely pushes a raw JSON byte array into the broadcast channel.
+// We use a non-blocking select so slow frontend clients don't crash the Go backend.
+func (h *Hub) BroadcastMessage(msg []byte) {
+	select {
+	case h.broadcast <- msg:
+	default:
+	}
+}
+
 // We allow all origins since this is a local development playground dashboard!
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
