@@ -30,10 +30,46 @@ INSERT INTO users (id, email, phone, preferences) VALUES (
     '{"channels": {"email": true, "sms": false}}'::jsonb
 );
 
--- 2. A mock template (v1) using Go's text/template syntax ({{.Variable}})
+-- 2. A mock user who Opts-In to BOTH Email and SMS
+INSERT INTO users (id, email, phone, preferences) VALUES (
+    '22222222-2222-2222-2222-222222222222', 
+    'jane.smith@example.com', 
+    '+1987654321', 
+    '{"channels": {"email": true, "sms": true}}'::jsonb
+);
+
+-- =========================================================================
+-- TEMPLATE SEED DATA
+-- =========================================================================
+
+-- Template 1: Welcome Email
 INSERT INTO templates (name, version, subject_template, body_template) VALUES (
     'welcome_email',
     'v1',
     'Welcome to our store, {{.FirstName}}!',
     'Hello {{.FirstName}}, thanks for joining! Your secret discount code is {{.Code}}.'
+);
+
+-- Template 2: Password Reset
+INSERT INTO templates (name, version, subject_template, body_template) VALUES (
+    'password_reset',
+    'v1',
+    'Password Reset Request',
+    'Hi {{.FirstName}}, click here to reset your password: {{.ResetLink}}. This link expires in 15 minutes.'
+);
+
+-- Template 3: Order Shipped
+INSERT INTO templates (name, version, subject_template, body_template) VALUES (
+    'order_shipped',
+    'v1',
+    'Your Order #{{.OrderNumber}} has shipped!',
+    'Great news {{.FirstName}}! Your order has shipped and will arrive on {{.DeliveryDate}}.'
+);
+
+-- Template 4: Abandoned Cart
+INSERT INTO templates (name, version, subject_template, body_template) VALUES (
+    'abandoned_cart',
+    'v1',
+    'You left something behind...',
+    'Hi {{.FirstName}}, you left items in your cart! Click here to complete your purchase: {{.CheckoutLink}}'
 );

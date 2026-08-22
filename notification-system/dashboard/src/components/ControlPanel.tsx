@@ -191,7 +191,9 @@ export default function ControlPanel({ serverOnline }: { serverOnline: boolean }
             className="w-full bg-neutral-950 border border-white/10 rounded-xl p-3 text-sm text-white focus:ring-2 focus:ring-cyan-500 outline-none transition-all"
           >
             <option value="welcome_email">Welcome Email (Routes to Email)</option>
-            <option value="abandoned_cart">Abandoned Cart (SMS &amp; Email) ⚠ needs seeding</option>
+            <option value="password_reset">Password Reset (Routes to Email)</option>
+            <option value="order_shipped">Order Shipped (Routes to Email)</option>
+            <option value="abandoned_cart">Abandoned Cart (Routes to Email & SMS)</option>
           </select>
         </div>
 

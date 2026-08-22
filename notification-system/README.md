@@ -8,28 +8,72 @@ A highly scalable, production-grade notification system built in Go. I am constr
 
 To visually track the entire distributed system in real-time, I built a custom **Next.js Observability Dashboard**. It uses WebSockets to hook directly into the Go backend's telemetry, rendering a live architectural heatmap and isolating concurrent requests into dedicated terminal swimlanes.
 
-### How to Run the Full Stack
+## 🛠 Getting Started
 
-1. **Start the Infrastructure & Metrics (Docker)**
-   ```bash
-   docker-compose up -d
-   ```
-2. **Start the Go Backend (API + Workers)**
-   ```bash
-   go run cmd/api/main.go
-   ```
-3. **Start the Next.js Dashboard**
-   ```bash
-   cd dashboard
-   npm install
-   npm run dev
-   ```
+### 1. Start the Environment
+The entire architecture (PostgreSQL, Redis, API Gateway, and Background Workers) is containerized and orchestrated via Docker.
 
-### Service Access Points
-*   **Custom Observability UI:** [http://localhost:3001](http://localhost:3001) *(Trigger events and watch the live heatmap!)*
-*   **Grafana Dashboards:** [http://localhost:3000](http://localhost:3000) *(Long-term statistical metrics)*
+```bash
+# Spin up the cluster and horizontally scale the background workers
+docker compose up -d --build --scale worker-email=3 --scale worker-sms=2
+```
+
+### 2. Initialize the Database
+Run the migration script to create tables and automatically seed mock users and templates:
+
+```bash
+chmod +x migrate.sh
+./migrate.sh
+```
+
+### 3. Start the UI Dashboard
+```bash
+cd dashboard
+npm install
+npm run dev
+```
+
+### 📊 Service Access Points
+*   **Observability Dashboard:** [http://localhost:3001](http://localhost:3001) *(Trigger events and watch the live heatmap!)*
+*   **Grafana:** [http://localhost:3000](http://localhost:3000) *(Long-term statistical metrics)*
 *   **Prometheus:** [http://localhost:9090](http://localhost:9090) *(Raw metric scraping)*
-*   **Go API Gateway:** `http://localhost:8080`
+*   **API Gateway:** `http://localhost:8080`
+
+---
+
+## 💻 Developer Commands
+
+### Viewing the Distributed Logs
+Because the architecture is broken into microservices, logs are aggregated across all containers. To view the unified stream:
+```bash
+docker compose logs -f
+```
+
+### Managing the Lifecycle
+When you are done working for the day, pause the environment to save CPU/RAM resources (this safely preserves your database):
+```bash
+docker compose stop
+```
+To resume work the next day:
+```bash
+docker compose start
+```
+*Note: Only run `docker compose down -v` if you intend to completely destroy the database volumes and start from scratch.*
+
+---
+
+## 🧪 Available Test Data
+The `./migrate.sh` script automatically injects the following mock data so you can test the UI instantly:
+
+**Users:**
+- `john.doe@example.com` *(Email: ON, SMS: OFF)*
+- `jane.smith@example.com` *(Email: ON, SMS: ON)*
+
+**Templates:**
+- `welcome_email`
+- `password_reset`
+- `order_shipped`
+- `abandoned_cart`
 
 ---
 
